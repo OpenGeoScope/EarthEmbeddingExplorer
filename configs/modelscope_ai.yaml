@@ -1,0 +1,15 @@
+siglip:
+  ckpt_path: "ms_ai"
+  model_name: "ViT-SO400M-14-SigLIP-384"
+  tokenizer_path: "ms_ai"
+  embedding_path: "ms://VoyagerX/EarthEmbeddings/Core-S2L2A-249k/siglip/SigLIP_crop_384x384.parquet"
+farslip:
+  ckpt_path: "ms_ai"
+  model_name: "ViT-B-16"
+  embedding_path: "ms://VoyagerX/EarthEmbeddings/Core-S2L2A-249k/farslip/FarSLIP_crop_384x384.parquet"
+satclip:
+  ckpt_path: "ms_ai"
+  embedding_path: "ms://VoyagerX/EarthEmbeddings/Core-S2L2A-249k/satclip/SatCLIP_crop_384x384.parquet"
+dinov2:
+  ckpt_path: "ms_ai"
+  embedding_path: "ms://VoyagerX/EarthEmbeddings/Core-S2L2A-249k/dinov2/DINOv2_crop_384x384.parquet"
