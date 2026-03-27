@@ -10,7 +10,7 @@ def load_config():
         config_path = "./configs/modelscope_cn.yaml"
     elif os.path.exists("./configs/modelscope_ai.yaml"):
         config_path = "./configs/modelscope_ai.yaml"
-        # os.environ["MODELSCOPE_DOMAIN"] = "modelscope.ai"
+        os.environ["MODELSCOPE_DOMAIN"] = "modelscope.ai"
     elif os.path.exists("./configs/huggingface.yaml"):
         config_path = "./configs/huggingface.yaml"
     else:

@@ -66,6 +66,10 @@ class DINOv2Model:
                 # Load from ModelScope
                 import modelscope
                 if self.model_name.endswith('ai'):
+                    print(f"Loading from ModelScope AI: {self.model_name}")
+                    # get and print MODELSCOPE_DOMAIN environment variable for debugging
+                    modelscope_domain = os.getenv('MODELSCOPE_DOMAIN', 'Not Set')
+                    print(f"MODELSCOPE_DOMAIN: {modelscope_domain}")
                     self.model_name = "VoyagerX/dinov2-large"
                 self.processor = modelscope.AutoImageProcessor.from_pretrained(self.model_name)
                 self.model = modelscope.AutoModel.from_pretrained(self.model_name)

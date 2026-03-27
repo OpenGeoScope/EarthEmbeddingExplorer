@@ -1,4 +1,5 @@
 import fsspec
+import os
 import pyarrow.parquet as pq
 import numpy as np
 from PIL import Image
@@ -136,6 +137,10 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
         mode="rgb"       → (img_384, img_full)          — PIL Images from RGB bands.
         mode="multiband" → (img_384, img_full, bands)   — thumbnail preview + np.ndarray (H, W, 12) uint16.
     """
+    if os.path.exists("./configs/modelscope_ai.yaml"):
+        os.environ["MODEL_DOMAIN"] = "modelscope.cn"
+    else:
+        os.environ["MODEL_DOMAIN"] = "modelscope.cn"
     row_dict, err = _prepare_row_dict(product_id, df_source, verbose)
     if row_dict is None:
         return (None, None) if mode != "multiband" else (None, None, None)
