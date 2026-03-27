@@ -65,7 +65,7 @@ class DINOv2Model:
             elif self.ckpt_path.startswith('ms'):
                 # Load from ModelScope
                 import modelscope
-                if self.model_name.endswith('ai'):
+                if self.ckpt_path.endswith('ai'):
                     print(f"Loading from ModelScope AI: {self.model_name}")
                     # get and print MODELSCOPE_DOMAIN environment variable for debugging
                     modelscope_domain = os.getenv('MODELSCOPE_DOMAIN', 'Not Set')
