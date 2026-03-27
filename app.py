@@ -72,19 +72,19 @@ try:
 except Exception as e:
     print(f"Failed to load SatCLIP: {e}")
 
-# # FarSLIP
-# try:
-#     if config and 'farslip' in config:
-#         models['FarSLIP'] = FarSLIPModel(
-#             ckpt_path=config['farslip'].get('ckpt_path'),
-#             model_name=config['farslip'].get('model_name'),
-#             embedding_path=config['farslip'].get('embedding_path'),
-#             device=device
-#         )
-#     else:
-#         models['FarSLIP'] = FarSLIPModel(device=device)
-# except Exception as e:
-#     print(f"Failed to load FarSLIP: {e}")
+# FarSLIP
+try:
+    if config and 'farslip' in config:
+        models['FarSLIP'] = FarSLIPModel(
+            ckpt_path=config['farslip'].get('ckpt_path'),
+            model_name=config['farslip'].get('model_name'),
+            embedding_path=config['farslip'].get('embedding_path'),
+            device=device
+        )
+    else:
+        models['FarSLIP'] = FarSLIPModel(device=device)
+except Exception as e:
+    print(f"Failed to load FarSLIP: {e}")
 
 def get_active_model(model_name):
     if model_name not in models:
