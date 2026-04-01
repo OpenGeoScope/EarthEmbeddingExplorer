@@ -1088,7 +1088,8 @@ div.form:has(.filter-checkbox) {
         <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings/tree/main"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
         <a href="https://huggingface.co/spaces/ML4Sustain/EarthExplorer/blob/main/Tutorial.md"> <img src="https://img.shields.io/badge/Document-📖-007bff"> </a>
         <a href="https://modelscope.cn/studios/VoyagerX/EarthExplorer/file/view/master/Tutorial_zh.md?status=1"> <img src="https://img.shields.io/badge/中文文档-📖-007bff"> </a>
-        <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/Tutorial-@ICLR26📖-007bff"> </a>
+        <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/OpenReview-ICLR26-007bff"> </a>
+        <a href="https://arxiv.org/abs/2603.29441"> <img src="https://img.shields.io/badge/Paper-arXiv-8B0000 "> </a>
     </div>
     
     """)
