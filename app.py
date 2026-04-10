@@ -1078,6 +1078,8 @@ div.form:has(.filter-checkbox) {
     gr.Markdown("# EarthEmbeddingExplorer")
     gr.HTML("""
     <div style="font-size: 1.2em;">
+    EarthEmbeddingExplorer 是一款工具跨模态遥感图像检索工具，允许您使用自然语言描述、图像、地理位置或简单地在地图上点击来搜索地球的卫星图像。例如，您可以输入“热带雨林”或“有城市的海岸线”，系统就会找到地球上与您描述相符的位置。然后，它会在世界地图上可视化这些位置的卫星图像嵌入和您的输入嵌入的相似度，并显示最相似的图像。您可以下载检索结果和最相似的图像。
+    
     EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.
     </div>
     
@@ -1086,8 +1088,8 @@ div.form:has(.filter-checkbox) {
         <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.ai-xGPU-624aff"></a>
         <a href="https://modelscope.cn/datasets/VoyagerX/EarthEmbeddings"><img src="https://img.shields.io/badge/👾 MS-Dataset-624aff"></a>
         <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings/tree/main"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
-        <a href="https://huggingface.co/spaces/ML4Sustain/EarthExplorer/blob/main/Tutorial.md"> <img src="https://img.shields.io/badge/Document-📖-007bff"> </a>
-        <a href="https://modelscope.cn/studios/VoyagerX/EarthExplorer/file/view/master/Tutorial_zh.md?status=1"> <img src="https://img.shields.io/badge/中文文档-📖-007bff"> </a>
+        <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/file/view/master/doc.md?status=1"> <img src="https://img.shields.io/badge/Document-📖-007bff"> </a>
+        <a href="https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/file/view/master/doc_zh.md?status=1"> <img src="https://img.shields.io/badge/中文文档-📖-007bff"> </a>
         <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/Tutorial-@ICLR26📖-007bff"> </a>
     </div>
     
