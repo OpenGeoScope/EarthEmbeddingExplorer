@@ -13,13 +13,6 @@ from PIL import Image as PILImage
 from PIL import ImageDraw, ImageFont
 
 from data_utils import download_and_process_image, get_esri_satellite_image, get_placeholder_image
-from models.dinov2_model import DINOv2Model
-from models.farslip_model import FarSLIPModel
-from models.load_config import load_and_process_config
-from models.satclip_model import SatCLIPModel
-
-# Import custom modules
-from models.siglip_model import SigLIPModel
 from visualize import (
     format_results_for_gallery,
     plot_geographic_distribution,
@@ -27,77 +20,35 @@ from visualize import (
     plot_top5_overview,
 )
 
-# Configuration
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Running on device: {device}")
+# Import extracted modules
+from core.model_manager import ModelManager
+from core.filters import build_filter_options, apply_filters
+from core.search_engine import search_text, search_image, search_location, search_mixed
+from core.exporters import save_plot
+from ui.utils import (
+    combine_images,
+    create_text_image,
+    fetch_top_k_images,
+    get_all_results_metadata,
+    generate_status_msg,
+    normalize_scores,
+    format_results_to_text,
+)
+from ui.callbacks import (
+    get_initial_plot,
+    handle_map_click,
+    download_image_by_location,
+    reset_to_global_map,
+)
 
-# Load and process configuration
-config = load_and_process_config()
-print(config)
-
-# Initialize Models
-print("Initializing models...")
-models = {}
-
-# DINOv2
-try:
-    if config and "dinov2" in config:
-        models["DINOv2"] = DINOv2Model(
-            ckpt_path=config["dinov2"].get("ckpt_path"),
-            embedding_path=config["dinov2"].get("embedding_path"),
-            device=device,
-        )
-    else:
-        models["DINOv2"] = DINOv2Model(device=device)
-except Exception as e:
-    print(f"Failed to load DINOv2: {e}")
-
-# SigLIP
-try:
-    if config and "siglip" in config:
-        models["SigLIP"] = SigLIPModel(
-            ckpt_path=config["siglip"].get("ckpt_path"),
-            tokenizer_path=config["siglip"].get("tokenizer_path"),
-            embedding_path=config["siglip"].get("embedding_path"),
-            device=device,
-        )
-    else:
-        models["SigLIP"] = SigLIPModel(device=device)
-except Exception as e:
-    print(f"Failed to load SigLIP: {e}")
-
-# SatCLIP
-try:
-    if config and "satclip" in config:
-        models["SatCLIP"] = SatCLIPModel(
-            ckpt_path=config["satclip"].get("ckpt_path"),
-            embedding_path=config["satclip"].get("embedding_path"),
-            device=device,
-        )
-    else:
-        models["SatCLIP"] = SatCLIPModel(device=device)
-except Exception as e:
-    print(f"Failed to load SatCLIP: {e}")
-
-# FarSLIP
-try:
-    if config and "farslip" in config:
-        models["FarSLIP"] = FarSLIPModel(
-            ckpt_path=config["farslip"].get("ckpt_path"),
-            model_name=config["farslip"].get("model_name"),
-            embedding_path=config["farslip"].get("embedding_path"),
-            device=device,
-        )
-    else:
-        models["FarSLIP"] = FarSLIPModel(device=device)
-except Exception as e:
-    print(f"Failed to load FarSLIP: {e}")
+# Initialize ModelManager (loads all models)
+model_manager = ModelManager()
+models = model_manager.models  # Keep for backward compatibility with existing code
 
 
 def get_active_model(model_name):
-    if model_name not in models:
-        return None, f"Model {model_name} not loaded."
-    return models[model_name], None
+    """Wrapper for backward compatibility."""
+    return model_manager.get_model(model_name)
 
 
 def build_filter_options(
