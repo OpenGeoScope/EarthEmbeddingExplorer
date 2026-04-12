@@ -500,7 +500,11 @@ div.form:has(.filter-checkbox) {
     )
 
     # Save Event — download_mode controls the image format in the exported zip
-    save_btn.click(fn=save_plot, inputs=[current_fig, download_mode], outputs=[download_file])
+    # Save/Download Results
+    def _save_results(current_fig, download_mode):
+        return save_plot(current_fig, models, download_mode)
+
+    save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
 
     # Tab Selection Events
     def show_static_map():
