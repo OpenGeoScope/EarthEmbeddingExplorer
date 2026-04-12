@@ -1530,7 +1530,7 @@ div.form:has(.filter-checkbox) {
     def _clear_multiband_on_upload(img, source):
         if source == "download":
             # Image was set by the download button — keep multiband, reset source flag
-            return gr.update(), "upload"
+            return gr.update(), "download"
         # User manually uploaded/changed image — discard stale multiband data
         return None, "upload"
 
