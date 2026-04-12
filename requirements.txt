@@ -16,4 +16,4 @@ pillow
 lightning
 torchgeo
 modelscope
-gradio
+gradio==5.49.1
