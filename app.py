@@ -24,6 +24,23 @@ def get_active_model(model_name):
     return model_manager.get_model(model_name)
 
 
+# Wrapper functions for UI callbacks (pass models dict to extracted functions)
+def _get_initial_plot():
+    return get_initial_plot(models)
+
+
+def _reset_to_global_map():
+    return reset_to_global_map(models)
+
+
+def _handle_map_click(evt, df_vis):
+    return handle_map_click(evt, df_vis)
+
+
+def _download_image_by_location(lat, lon, pid, model_name):
+    return download_image_by_location(lat, lon, pid, model_name, models)
+
+
 
 
 # Gradio Blocks Interface
@@ -275,37 +292,33 @@ div.form:has(.filter-checkbox) {
     )
 
     # Initial Load
-    demo.load(fn=get_initial_plot, outputs=[plot_map, current_fig, map_data_state, plot_map_interactive])
+    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state, plot_map_interactive])
 
     # Reset Map Buttons
-    btn_reset_map_img.click(fn=reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
+    btn_reset_map_img.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
 
-    btn_reset_map_loc.click(fn=reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
+    btn_reset_map_loc.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
 
-    btn_reset_map_mixed.click(fn=reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
+    btn_reset_map_mixed.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
 
     # Map Click Event - updates Image Search coordinates
-    plot_map.select(fn=handle_map_click, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status])
+    plot_map.select(fn=_handle_map_click, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status])
 
     # Map Click Event - also updates Location Search coordinates
     plot_map.select(
-        fn=handle_map_click, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status]
+        fn=_handle_map_click, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status]
     )
 
     # Map Click Event - also updates Mixed Search coordinates
     plot_map.select(
-        fn=handle_map_click, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status]
+        fn=_handle_map_click, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status]
     )
 
     # Download Image by Geolocation
-    def _download_and_mark_source(lat, lon, pid, model_name):
-        img, status, multiband = download_image_by_location(lat, lon, pid, model_name)
-        return img, status, multiband, "download"  # Mark source so change handler won't clear multiband
-
     btn_download_img.click(
-        fn=_download_and_mark_source,
+        fn=_download_image_by_location,
         inputs=[img_lat, img_lon, img_pid, model_selector_img],
-        outputs=[image_input, img_click_status, multiband_state, image_source],
+        outputs=[image_input, img_click_status, multiband_state],
     )
 
     # Filter toggle events
