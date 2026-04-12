@@ -1,7 +1,5 @@
-import numpy as np
-import pandas as pd
-
 import gradio as gr
+import pandas as pd
 
 from data_utils import download_and_process_image
 from visualize import plot_global_map_static

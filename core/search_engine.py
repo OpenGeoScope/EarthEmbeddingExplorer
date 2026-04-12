@@ -1,6 +1,7 @@
 """Search engine for text, image, location, and mixed modalities."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import gradio as gr
 import numpy as np
@@ -826,6 +827,3 @@ def _format_results_to_text(results):
 
     return "\n".join(lines)
 
-
-# Need to import these at the top
-from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -1,10 +1,8 @@
 import numpy as np
-import pandas as pd
 from PIL import Image as PILImage
 from PIL import ImageDraw, ImageFont
 
 from data_utils import download_and_process_image, get_esri_satellite_image
-from visualize import format_results_for_gallery, plot_top5_overview
 
 
 def combine_images(img1, img2):
