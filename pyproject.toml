@@ -1,0 +1,52 @@
+[tool.ruff]
+# Target Python version
+target-version = "py310"
+# Maximum line length
+line-length = 120
+# Excluded directories
+exclude = [
+    ".git",
+    ".vscode",
+    "__pycache__",
+    "MajorTOM",
+    "models",
+    "examples",
+]
+
+[tool.ruff.lint]
+# Enabled rules
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes (unused imports/variables)
+    "I",     # isort (import sorting)
+    "W",     # pycodestyle warnings
+    "N",     # pep8-naming (naming conventions)
+    "UP",    # pyupgrade (modern syntax)
+    "RUF",   # Ruff-specific rules
+    "B",     # flake8-bugbear (common bug patterns)
+]
+
+# Ignored rules
+ignore = [
+    "E501",  # Line length handled by formatter
+]
+
+# Rules that can be auto-fixed
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+# Local modules
+known-first-party = ["data_utils", "visualize"]
+# Force single-line imports
+force-single-line = false
+
+[tool.ruff.format]
+# Use double quotes
+quote-style = "double"
+# Use space indentation
+indent-style = "space"
+# Keep trailing commas
+skip-magic-trailing-comma = false
+# Line ending style
+line-ending = "lf"
