@@ -1,9 +1,11 @@
 import os
+
 import yaml
+
 
 def load_config():
     """Load configuration from local.yaml if exists"""
-    
+
     if os.path.exists("./configs/local.yaml"):
         config_path = "./configs/local.yaml"
     elif os.path.exists("./configs/modelscope_cn.yaml"):
@@ -17,21 +19,21 @@ def load_config():
         print("No local.yaml found, using default configurations")
         return None
     print(f"Loading configuration from {config_path}")
-    with open(config_path, 'r') as f:
+    with open(config_path) as f:
         return yaml.safe_load(f)
-    
+
 def resolve_path(path_str):
     """
     Resolve path string, supporting HuggingFace Hub downloads and ModelScope downloads.
-    Dataset Format: 
+    Dataset Format:
       - hf://repo_owner/repo_name/path/to/file (HuggingFace)
       - ms://repo_owner/repo_name/path/to/file (ModelScope)
-    
+
     Note: repo_id contains '/', e.g., VoyagerX/EarthEmbeddings or ML4Sustain/EarthEmbeddings
     """
     if path_str is None:
         return None
-    
+
     if isinstance(path_str, str):
         if path_str.startswith("hf://"):
             try:
@@ -40,7 +42,7 @@ def resolve_path(path_str):
                 # Split into at most 3 parts: owner, repo, filename
                 path_without_prefix = path_str[5:]  # Remove "hf://"
                 parts = path_without_prefix.split('/', 2)  # Split into owner, repo, filename
-                
+
                 if len(parts) >= 3:
                     repo_id = f"{parts[0]}/{parts[1]}"  # owner/repo
                     filename = parts[2]  # path/to/file
@@ -48,7 +50,7 @@ def resolve_path(path_str):
                     return hf_hub_download(repo_id, filename, repo_type='dataset')
                 else:
                     print(f"Invalid HuggingFace path format: {path_str}")
-                    print(f"Expected format: hf://owner/repo/path/to/file")
+                    print("Expected format: hf://owner/repo/path/to/file")
                     return None
             except ImportError:
                 print("huggingface_hub not installed, cannot download from HuggingFace")
@@ -56,14 +58,14 @@ def resolve_path(path_str):
             except Exception as e:
                 print(f"Error downloading from HuggingFace: {e}")
                 return None
-        
+
         elif path_str.startswith("ms://"):
             try:
                 from modelscope.hub.snapshot_download import snapshot_download
                 # Parse: ms://owner/repo/path/to/file
                 path_without_prefix = path_str[5:]  # Remove "ms://"
                 parts = path_without_prefix.split('/', 2)  # Split into owner, repo, filename
-                
+
                 if len(parts) >= 3:
                     repo_id = f"{parts[0]}/{parts[1]}"  # owner/repo
                     filename = parts[2]  # path/to/file
@@ -83,21 +85,21 @@ def resolve_path(path_str):
                         return None
                 else:
                     print(f"Invalid ModelScope path format: {path_str}")
-                    print(f"Expected format: ms://owner/repo/path/to/file")
+                    print("Expected format: ms://owner/repo/path/to/file")
                     return None
             except Exception as e:
                 print(f"Error downloading from ModelScope: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
-    
+
     return path_str
 
 def process_config(config):
     """Process config to resolve all paths"""
     if config is None:
         return None
-    
+
     processed = {}
     for model_name, model_config in config.items():
         processed[model_name] = {}
@@ -106,7 +108,7 @@ def process_config(config):
                 processed[model_name][key] = resolve_path(value)
             else:
                 processed[model_name][key] = value
-    
+
     return processed
 
 def load_and_process_config():

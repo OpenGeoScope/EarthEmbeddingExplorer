@@ -1,2 +1,3 @@
-from .FarSLIP import *
-from .SatCLIP import *
+from .FarSLIP import *  # noqa: F403
+from .SatCLIP import *  # noqa: F403
+

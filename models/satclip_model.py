@@ -1,15 +1,14 @@
-import sys
 import os
-import torch
+import warnings
+
 import numpy as np
-import pandas as pd
 import pyarrow.parquet as pq
+import torch
 import torch.nn.functional as F
-from PIL import Image
 from huggingface_hub import hf_hub_download
 from modelscope.hub.snapshot_download import snapshot_download
+from PIL import Image
 
-import warnings
 # Attempt to import get_satclip, but handle potential issues gracefully
 
 with warnings.catch_warnings():
@@ -18,11 +17,11 @@ with warnings.catch_warnings():
     print("Successfully imported models.SatCLIP.satclip.load.get_satclip.")
 
 class SatCLIPModel:
-    def __init__(self, 
+    def __init__(self,
                  ckpt_path='./checkpoints/SatCLIP/satclip-vit16-l40.ckpt',
                  embedding_path='./embedding_datasets/10percent_satclip_encoded/all_satclip_embeddings.parquet', # Path to pre-computed embeddings if available
                  device=None):
-        
+
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         if 'hf' in ckpt_path:
             ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
@@ -42,11 +41,11 @@ class SatCLIPModel:
 
         self.ckpt_path = ckpt_path
         self.embedding_path = embedding_path
-        
+
         self.model = None
         self.df_embed = None
         self.image_embeddings = None
-        
+
         self.load_model()
         if self.embedding_path:
             self.load_embeddings()
@@ -79,7 +78,7 @@ class SatCLIPModel:
                 return
 
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
-            
+
             # Pre-compute image embeddings tensor
             image_embeddings_np = np.stack(self.df_embed['embedding'].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
@@ -94,18 +93,18 @@ class SatCLIPModel:
         """
         if self.model is None:
             return None
-        
+
         # SatCLIP expects input shape (N, 2) -> (lon, lat)
         # Note: SatCLIP usually uses (lon, lat) order.
         # Use double precision as per notebook reference
         coords = torch.tensor([[lon, lat]], dtype=torch.double).to(self.device)
-        
+
         with torch.no_grad():
             # Use model.encode_location instead of model.location_encoder
             # And normalize as per notebook: x / x.norm()
             loc_features = self.model.encode_location(coords).float()
             loc_features = loc_features / loc_features.norm(dim=1, keepdim=True)
-            
+
         return loc_features
 
     def encode_image(self, image):
@@ -128,12 +127,12 @@ class SatCLIPModel:
                 img = image.astype(np.float32) / 10000.0
                 # (H, W, 12) → (12, H, W)
                 img = img.transpose(2, 0, 1)
-                # Insert B10 (zeros) at index 10 → (13, H, W)
-                B10 = np.zeros((1, img.shape[1], img.shape[2]), dtype=img.dtype)
-                img_13 = np.concatenate([img[:10], B10, img[10:]], axis=0)
+                # Insert B10 (zeros) at index 10 -> (13, H, W)
+                _b10 = np.zeros((1, img.shape[1], img.shape[2]), dtype=img.dtype)
+                img_13 = np.concatenate([img[:10], _b10, img[10:]], axis=0)
 
                 input_tensor = torch.from_numpy(img_13).unsqueeze(0)  # (1, 13, H, W)
-                # Resize to 224×224
+                # Resize to 224x224
                 input_tensor = torch.nn.functional.interpolate(
                     input_tensor, size=(224, 224), mode='bicubic', align_corners=False)
                 input_tensor = input_tensor.to(self.device)
@@ -178,21 +177,22 @@ class SatCLIPModel:
             return None, None, None
 
         query_features = query_features.float()
-        
+
         # Similarity calculation (Cosine similarity)
         # SatCLIP embeddings are normalized, so dot product is cosine similarity
         probs = (self.image_embeddings @ query_features.T).detach().cpu().numpy().flatten()
-        
+
         if top_percent is not None:
             k = int(len(probs) * top_percent)
-            if k < 1: k = 1
+            if k < 1:
+                k = 1
             threshold = np.partition(probs, -k)[-k]
 
         # Filter by threshold
         mask = probs >= threshold
         filtered_indices = np.where(mask)[0]
-        
+
         # Get top k
         top_indices = np.argsort(probs)[-top_k:][::-1]
-        
+
         return probs, filtered_indices, top_indices

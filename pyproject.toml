@@ -29,6 +29,7 @@ select = [
 # Ignored rules
 ignore = [
     "E501",  # Line length handled by formatter
+    "N812",  # torch.nn.functional as F is PyTorch convention
 ]
 
 # Rules that can be auto-fixed
