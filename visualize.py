@@ -127,12 +127,9 @@ def plot_geographic_distribution(df, scores, threshold, lat_col='centre_lat', lo
     df_vis['score'] = scores
     df_vis = df_vis.sort_values(by='score', ascending=False)
 
-    # Top 1%
-    top_n = int(len(df_vis) * threshold)
-    if top_n < 1:
-        top_n = 1
-    # if top_n > 5000: top_n = 5000
-    df_filtered = df_vis.head(top_n)
+    # Show ALL filtered results (no additional threshold filtering)
+    # The threshold was already applied in model.search() and apply_filters()
+    df_filtered = df_vis
 
     fig = Figure(figsize=(10, 5), dpi=300)
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
@@ -142,7 +139,7 @@ def plot_geographic_distribution(df, scores, threshold, lat_col='centre_lat', lo
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5, alpha=0.5)
 
     # 2. Plot Search Results with color map
-    label_text = f'Top {threshold * 1000:.0f}‰ Matches'
+    label_text = f'{len(df_filtered)} Results'
     sc = ax.scatter(
         df_filtered[lon_col],
         df_filtered[lat_col],

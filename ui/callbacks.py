@@ -6,7 +6,11 @@ from visualize import plot_global_map_static
 
 
 def get_initial_plot(models):
-    # Find the first available embedding to plot the global map
+    """Find the first available embedding to plot the global map."""
+    if models is None:
+        print("Warning: models is None in get_initial_plot")
+        return gr.update(visible=True), [], None, gr.update(visible=False)
+
     df_vis = None
     img = None
     first_model_name = next(iter(models), None)
@@ -16,7 +20,7 @@ def get_initial_plot(models):
         print("No embedding data available for initial plot.")
         img, df_vis = None, None
 
-    return gr.update(value=img, visible=True), [img], df_vis, gr.update(visible=False)
+    return gr.update(value=img, visible=True), [img] if img else [], df_vis, gr.update(visible=False)
 
 
 def handle_map_click(evt: gr.SelectData, df_vis):
@@ -110,6 +114,7 @@ def download_image_by_location(lat, lon, pid, model_name, models):
     Returns:
         (thumbnail_img, status_msg, multiband_array_or_None)
     """
+    print(f"DEBUG download_image_by_location: lat={lat}, lon={lon}, model_name={model_name}")
     if lat is None or lon is None:
         return None, "Please specify coordinates first.", None
 
@@ -153,13 +158,18 @@ def download_image_by_location(lat, lon, pid, model_name, models):
 
 
 def reset_to_global_map(models):
-    """Reset the map to the initial global distribution view"""
+    """Reset the map to the initial global distribution view."""
+    if models is None:
+        print("Warning: models is None in reset_to_global_map")
+        return gr.update(visible=True), [], None
+
     img = None
     df_vis = None
     first_model_name = next(iter(models), None)
     if first_model_name is not None and models[first_model_name].df_embed is not None:
         img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
     else:
+        print("No embedding data available for initial plot.")
         img, df_vis = None, None
 
-    return gr.update(value=img, visible=True), [img], df_vis
+    return gr.update(value=img, visible=True), [img] if img else [], df_vis

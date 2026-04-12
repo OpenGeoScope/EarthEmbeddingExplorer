@@ -6,7 +6,18 @@ from core.filters import build_filter_options
 
 # Import extracted modules
 from core.model_manager import ModelManager
-from core.search_engine import search_image, search_location, search_mixed, search_text
+from core.search_engine import (
+    search_image as _search_image,
+)
+from core.search_engine import (
+    search_location as _search_location,
+)
+from core.search_engine import (
+    search_mixed as _search_mixed,
+)
+from core.search_engine import (
+    search_text as _search_text,
+)
 from ui.callbacks import (
     download_image_by_location,
     get_initial_plot,
@@ -34,6 +45,7 @@ def _reset_to_global_map():
 
 
 def _handle_map_click(evt, df_vis):
+    """Handle map click event - extract lat/lon from click coordinates."""
     return handle_map_click(evt, df_vis)
 
 
@@ -302,23 +314,23 @@ div.form:has(.filter-checkbox) {
     btn_reset_map_mixed.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
 
     # Map Click Event - updates Image Search coordinates
-    plot_map.select(fn=_handle_map_click, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status])
+    def _map_click_handler(evt: gr.SelectData, state_data):
+        """Wrapper for map click that passes map_data_state."""
+        return _handle_map_click(evt, state_data)
 
-    # Map Click Event - also updates Location Search coordinates
-    plot_map.select(
-        fn=_handle_map_click, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status]
-    )
-
-    # Map Click Event - also updates Mixed Search coordinates
-    plot_map.select(
-        fn=_handle_map_click, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status]
-    )
+    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status])
+    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status])
+    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status])
 
     # Download Image by Geolocation
+    def _download_and_mark_source(lat, lon, pid, model_name):
+        img, status, multiband = download_image_by_location(lat, lon, pid, model_name, models)
+        return img, status, multiband, "download"
+
     btn_download_img.click(
-        fn=_download_image_by_location,
+        fn=_download_and_mark_source,
         inputs=[img_lat, img_lon, img_pid, model_selector_img],
-        outputs=[image_input, img_click_status, multiband_state],
+        outputs=[image_input, img_click_status, multiband_state, image_source],
     )
 
     # Filter toggle events
@@ -355,7 +367,7 @@ div.form:has(.filter-checkbox) {
         query, threshold, model_name, enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from search_text(query, threshold, model_name, fo)
+        yield from _search_text(model_manager, query, threshold, model_name, fo)
 
     def _wrap_search_image(
         image_input,
@@ -372,7 +384,7 @@ div.form:has(.filter-checkbox) {
         multiband_data=None,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from search_image(image_input, threshold, model_name, fo, multiband_data=multiband_data)
+        yield from _search_image(model_manager, image_input, threshold, model_name, fo, multiband_data=multiband_data)
 
     def _wrap_search_location(
         lat, lon, threshold, enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
@@ -380,7 +392,7 @@ div.form:has(.filter-checkbox) {
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
-        yield from search_location(lat, lon, threshold, fo)
+        yield from _search_location(model_manager, lat, lon, threshold, fo)
 
     def _wrap_search_mixed(
         query_text,
@@ -400,12 +412,14 @@ div.form:has(.filter-checkbox) {
         f_lat_max,
         f_lon_min,
         f_lon_max,
+        multiband_data=None,
     ):
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
-        yield from search_mixed(
-            query_text, query_image, lat, lon, w_text, w_image, w_location, threshold, model_name, fo
+        yield from _search_mixed(
+            model_manager,
+            query_text, query_image, lat, lon, w_text, w_image, w_location, threshold, model_name, fo, multiband_data
         )
 
     # Search Event (Text)
@@ -472,6 +486,7 @@ div.form:has(.filter-checkbox) {
             threshold_slider,
             model_selector_mixed,
             *_filter_inputs,
+            multiband_state,
         ],
         outputs=[
             plot_map_interactive,
