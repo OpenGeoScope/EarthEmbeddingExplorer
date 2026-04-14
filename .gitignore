@@ -5,3 +5,5 @@ modelscope_ai.yaml
 *.pyc
 .qwen/
 task.md
+*.ipynb
+*.pyc
