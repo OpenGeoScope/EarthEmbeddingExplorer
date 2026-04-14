@@ -332,18 +332,3 @@ def get_esri_satellite_image(lat, lon, score=None, rank=None, query=None):
 
         # Return a placeholder image with text
         return get_placeholder_image(f"Map Unavailable\n({lat:.2f}, {lon:.2f})")
-
-def get_esri_satellite_image_url(lat, lon, zoom=14):
-    """
-    Returns the URL for the Esri World Imagery tile at the given location.
-    """
-    try:
-        # imagery = EsriImagery()
-        # Calculate tile coordinates
-        # This is a simplification, cimgt handles this internally usually
-        # But for direct URL we might need more logic or just use the static map approach above
-        # For now, let's stick to the static map generation which works
-        pass
-    except Exception:
-        pass
-    return None
