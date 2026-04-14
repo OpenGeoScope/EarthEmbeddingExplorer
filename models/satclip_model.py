@@ -18,8 +18,8 @@ with warnings.catch_warnings():
 
 class SatCLIPModel:
     def __init__(self,
-                 ckpt_path='./checkpoints/SatCLIP/satclip-vit16-l40.ckpt',
-                 embedding_path='./embedding_datasets/10percent_satclip_encoded/all_satclip_embeddings.parquet', # Path to pre-computed embeddings if available
+                 ckpt_path='ms',
+                 embedding_path=None,
                  device=None):
 
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,7 +47,7 @@ class SatCLIPModel:
         self.image_embeddings = None
 
         self.load_model()
-        if self.embedding_path:
+        if self.embedding_path is not None:
             self.load_embeddings()
 
     def load_model(self):
@@ -142,7 +142,7 @@ class SatCLIPModel:
                     img_feature = img_feature / img_feature.norm(dim=1, keepdim=True)
                 return img_feature
 
-            elif isinstance(image, Image.Image):
+            elif isinstance(image, Image.Image):    # departed
                 # ---- RGB PIL Image ----
                 image = image.convert("RGB")
                 image = image.resize((224, 224))

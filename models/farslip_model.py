@@ -22,9 +22,9 @@ except ImportError as e:
 
 class FarSLIPModel:
     def __init__(self,
-                 ckpt_path="./checkpoints/FarSLIP/FarSLIP2_ViT-B-16.pt",
+                 ckpt_path="ms",
                  model_name="ViT-B-16",
-                 embedding_path="./embedding_datasets/10percent_farslip_encoded/all_farslip_embeddings.parquet",
+                 embedding_path=None,
                  device=None):
 
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,7 +50,7 @@ class FarSLIPModel:
         # Force setup path and reload open_clip for FarSLIP
         # self.setup_path_and_reload()
         self.load_model()
-        if self.embedding_path:
+        if self.embedding_path is not None:
             self.load_embeddings()
 
 

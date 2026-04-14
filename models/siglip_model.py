@@ -11,10 +11,10 @@ from PIL import Image
 
 class SigLIPModel:
     def __init__(self,
-                 ckpt_path="./checkpoints/ViT-SO400M-14-SigLIP-384/open_clip_pytorch_model.bin",
+                 ckpt_path="ms",
                  model_name="ViT-SO400M-14-SigLIP-384",
-                 tokenizer_path="./checkpoints/ViT-SO400M-14-SigLIP-384",
-                 embedding_path="./embedding_datasets/10percent_siglip_encoded/all_siglip_embeddings.parquet",
+                 tokenizer_path="ms",
+                 embedding_path=None,
                  device=None):
 
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -30,7 +30,8 @@ class SigLIPModel:
         self.image_embeddings = None
 
         self.load_model()
-        self.load_embeddings()
+        if self.embedding_path is not None:
+            self.load_embeddings()
 
     def load_model(self):
         print(f"Loading SigLIP model from {self.ckpt_path}...")

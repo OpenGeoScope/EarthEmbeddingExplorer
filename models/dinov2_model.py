@@ -23,9 +23,9 @@ class DINOv2Model:
     """
 
     def __init__(self,
-                 ckpt_path="./checkpoints/DINOv2",
+                 ckpt_path="ms",
                  model_name="facebook/dinov2-large",
-                 embedding_path="./embedding_datasets/10percent_dinov2_encoded/all_dinov2_embeddings.parquet",
+                 embedding_path=None,
                  device=None):
         """
         Initialize the DINOv2Model.
