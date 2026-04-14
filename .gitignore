@@ -4,3 +4,4 @@ modelscope_ai.yaml
 .vscode/
 *.pyc
 .qwen/
+task.md
