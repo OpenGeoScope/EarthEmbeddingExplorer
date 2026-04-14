@@ -129,11 +129,6 @@ class SigLIPModel:
         # Ensure query_features is float32
         query_features = query_features.float()
 
-        # Similarity calculation
-        # Logits: (N_images, 1)
-        # logits = self.image_embeddings @ query_features.T * self.model.logit_scale.exp() + self.model.logit_bias
-        # probs = torch.sigmoid(logits).detach().cpu().numpy().flatten()
-
         # Use Cosine Similarity directly (aligned with SigLIP_embdding.ipynb)
         similarity = (self.image_embeddings @ query_features.T).squeeze()
         probs = similarity.detach().cpu().numpy()

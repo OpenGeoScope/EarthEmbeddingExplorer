@@ -147,72 +147,51 @@ class DINOv2Model:
             print("Model not loaded!")
             return None
 
-        try:
-            # Convert to PIL Image if needed
-            if isinstance(image, torch.Tensor):
-                if is_sentinel2:
-                    # Sentinel-2 data: [C, H, W] -> normalize -> PIL
-                    image = self.normalize_s2(image)
-                    # Convert to [H, W, C] and then to numpy
-                    if image.shape[0] == 3:  # [C, H, W]
-                        image = image.permute(1, 2, 0)
-                    image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-                    image = Image.fromarray(image_np, mode='RGB')
-                else:
-                    # Regular RGB tensor: [H, W, C] or [C, H, W]
-                    if image.shape[0] == 3:  # [C, H, W]
-                        image = image.permute(1, 2, 0)
-                    image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-                    image = Image.fromarray(image_np, mode='RGB')
-            elif isinstance(image, np.ndarray):
-                if is_sentinel2:
-                    image = self.normalize_s2(image)
-                # Assume [H, W, C] format
-                if image.max() <= 1.0:
-                    image = (image * 255).astype(np.uint8)
-                else:
-                    image = image.astype(np.uint8)
-                image = Image.fromarray(image, mode='RGB')
-            elif isinstance(image, Image.Image):
-                image = image.convert("RGB")
+        # Convert to PIL Image if needed
+        if isinstance(image, torch.Tensor):
+            if is_sentinel2:
+                # Sentinel-2 data: [C, H, W] -> normalize -> PIL
+                image = self.normalize_s2(image)
+                # Convert to [H, W, C] and then to numpy
+                if image.shape[0] == 3:  # [C, H, W]
+                    image = image.permute(1, 2, 0)
+                image_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                image = Image.fromarray(image_np, mode='RGB')
             else:
-                raise ValueError(f"Unsupported image type: {type(image)}")
+                # Regular RGB tensor: [H, W, C] or [C, H, W]
+                if image.shape[0] == 3:  # [C, H, W]
+                    image = image.permute(1, 2, 0)
+                image_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                image = Image.fromarray(image_np, mode='RGB')
+                
+        elif isinstance(image, np.ndarray):
+            if is_sentinel2:
+                image = self.normalize_s2(image)
+            # Assume [H, W, C] format
+            if image.max() <= 1.0:
+                image = (image * 255).astype(np.uint8)
+            else:
+                image = image.astype(np.uint8)
+            image = Image.fromarray(image, mode='RGB')
+        elif isinstance(image, Image.Image):
+            image = image.convert("RGB")
+        else:
+            raise ValueError(f"Unsupported image type: {type(image)}")
 
-            # Process image
-            inputs = self.processor(images=image, return_tensors="pt")
-            pixel_values = inputs['pixel_values'].to(self.device)
+        # Process image
+        inputs = self.processor(images=image, return_tensors="pt")
+        pixel_values = inputs['pixel_values'].to(self.device)
 
-            # Generate embeddings
-            with torch.no_grad():
-                if self.device == "cuda":
-                    # with torch.amp.autocast('cuda'):  # disable amp as the official embedding is float32
-                    outputs = self.model(pixel_values)
-                else:
-                    outputs = self.model(pixel_values)
+        # Generate embeddings
+        with torch.no_grad():
+            outputs = self.model(pixel_values)
+            image_features = outputs.last_hidden_state.mean(dim=1)
 
-                # Get embeddings: average across sequence dimension
-                last_hidden_states = outputs.last_hidden_state
-                image_features = last_hidden_states.mean(dim=1)
+            # Normalize
+            image_features = F.normalize(image_features, dim=-1)
 
-                # # Get embeddings: Use pooler_output (1024-d) to match pre-computed embeddings
-                # # If pooler_output is not available, use CLS token (first token)
-                # if hasattr(outputs, 'pooler_output') and outputs.pooler_output is not None:
-                #     image_features = outputs.pooler_output
-                # else:
-                #     # Use CLS token (first token in sequence)
-                #     last_hidden_states = outputs.last_hidden_state
-                #     image_features = last_hidden_states[:, 0, :]  # [batch_size, hidden_dim]
+        return image_features   
 
-                # Normalize
-                image_features = F.normalize(image_features, dim=-1)
-
-            return image_features
-
-        except Exception as e:
-            print(f"Error encoding image: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
 
     def search(self, query_features, top_k=5, top_percent=None, threshold=0.0):
         """
@@ -264,54 +243,3 @@ class DINOv2Model:
         except Exception as e:
             print(f"Error during search: {e}")
             return None, None, None
-
-
-# Legacy class for backward compatibility
-class DINOv2_S2RGB_Embedder(torch.nn.Module):  # noqa: N801
-    """
-    Legacy embedding wrapper for DINOv2 and Sentinel-2 data.
-
-    This class is kept for backward compatibility with existing code.
-    For new projects, please use DINOv2Model instead.
-    """
-
-    def __init__(self):
-        """Initialize the legacy DINOv2_S2RGB_Embedder."""
-        super().__init__()
-
-        # Load the DINOv2 processor and model from Hugging Face
-        self.processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
-        self.model = AutoModel.from_pretrained('facebook/dinov2-base')
-
-        # Define the RGB bands for Sentinel-2 (B04, B03, B02)
-        self.bands = ['B04', 'B03', 'B02']
-
-        # Extract the input size from the processor settings
-        self.size = self.processor.crop_size['height'], self.processor.crop_size['width']
-
-    def normalize(self, input):
-        """
-        Normalize Sentinel-2 RGB data to true-color values.
-
-        Args:
-            input (torch.Tensor): Raw Sentinel-2 image tensor
-
-        Returns:
-            torch.Tensor: Normalized true-color image
-        """
-        return (2.5 * (input / 1e4)).clip(0, 1)
-
-    def forward(self, input):
-        """
-        Forward pass through the model to generate embeddings.
-
-        Args:
-            input (torch.Tensor): Input Sentinel-2 image tensor with shape [C, H, W]
-
-        Returns:
-            torch.Tensor: Embedding vector with shape [embedding_dim]
-        """
-        model_input = self.processor(self.normalize(input), return_tensors="pt")
-        outputs = self.model(model_input['pixel_values'].to(self.model.device))
-        last_hidden_states = outputs.last_hidden_state
-        return last_hidden_states.mean(dim=1).cpu()
