@@ -50,7 +50,7 @@ def save_plot(figs, models, download_mode="thumbnail"):
             figs.write_html(path)
             return path
 
-        zip_path = unique_temp_path("earth_explorer_results", ".zip")
+        zip_path = unique_temp_path("earth_embedding_explorer_results", ".zip")
 
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
             # Map image
