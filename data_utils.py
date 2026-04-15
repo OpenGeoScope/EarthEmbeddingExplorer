@@ -14,6 +14,22 @@ from PIL import Image, ImageDraw, ImageFont
 from rasterio.io import MemoryFile
 
 
+def preprocess_s2_true_color(rgb_array):
+    """
+    Normalize raw Sentinel-2 RGB bands to true-color values for display.
+
+    Applies the standard true-color normalization: divide by 10,000 and
+    scale by 2.5, clipping to the range [0, 1].
+
+    Args:
+        rgb_array (np.ndarray): Raw Sentinel-2 RGB array (H, W, 3) in uint16.
+
+    Returns:
+        np.ndarray: Normalized true-color array in range [0, 1] (float32).
+    """
+    return (2.5 * (rgb_array.astype(np.float32) / 10000.0)).clip(0, 1)
+
+
 def crop_center(img_array, cropx, cropy):
     y, x, _c = img_array.shape
     startx = x // 2 - (cropx // 2)
@@ -81,15 +97,30 @@ def _prepare_row_dict(product_id, df_source, verbose=True):
     return row_dict, None
 
 
-def _bands_to_rgb_pil(bands_data, verbose=True):
-    """Stack B04/B03/B02 bands into a normalised RGB PIL Image pair (384-crop, full)."""
+def _bands_to_rgb_pil(bands_data, verbose=True, normalize=True):
+    """
+    Stack B04/B03/B02 bands into a RGB PIL Image pair (384-crop, full).
+
+    Args:
+        bands_data (dict): Dictionary with 'B04', 'B03', 'B02' band arrays.
+        verbose (bool): Whether to print debug info.
+        normalize (bool): If True, apply true-color normalization (2.5 * value / 1e4).
+                          If False, return raw values directly converted to uint8
+                          (values > 255 will be clamped).
+
+    Returns:
+        tuple: (img_384, img_full) as PIL Images.
+    """
     rgb_img = np.stack([bands_data['B04'], bands_data['B03'], bands_data['B02']], axis=-1)
 
     if verbose:
         print(f"Raw RGB stats: Min={rgb_img.min()}, Max={rgb_img.max()}, Mean={rgb_img.mean()}, Dtype={rgb_img.dtype}")
 
-    rgb_norm = (2.5 * (rgb_img.astype(float) / 10000.0)).clip(0, 1)
-    rgb_uint8 = (rgb_norm * 255).astype(np.uint8)
+    if normalize:
+        rgb_norm = preprocess_s2_true_color(rgb_img)
+        rgb_uint8 = (rgb_norm * 255).astype(np.uint8)
+    else:
+        rgb_uint8 = rgb_img.clip(0, 255).astype(np.uint8)
 
     if verbose:
         print(f"Processed RGB stats: Min={rgb_uint8.min()}, Max={rgb_uint8.max()}, Mean={rgb_uint8.mean()}")
@@ -126,7 +157,7 @@ def _thumbnail_to_pil(thumb_img, verbose=True):
 MULTIBAND_COLUMNS = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']
 
 
-def download_and_process_image(product_id, df_source=None, verbose=True, mode="thumbnail"):
+def download_and_process_image(product_id, df_source=None, verbose=True, mode="thumbnail", normalize=True):
     """
     Download and process a MajorTOM image.
 
@@ -138,6 +169,8 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
             "thumbnail" (default) — read the pre-rendered thumbnail column (fastest).
             "rgb"                 — read B04/B03/B02 bands and compose true-color RGB.
             "multiband"           — read all 12 S2 bands + thumbnail for preview.
+        normalize: For mode="rgb", whether to apply true-color normalization.
+                   Set to False if you need raw band values for model preprocessing.
 
     Returns:
         mode="thumbnail" → (img_384, img_full)          — PIL Images from thumbnail.
@@ -175,7 +208,7 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
                 if verbose:
                     print(f"❌ Error: Missing bands in fetched data for {product_id}")
                 return None, None
-            img_384, img_full = _bands_to_rgb_pil(bands_data, verbose)
+            img_384, img_full = _bands_to_rgb_pil(bands_data, verbose, normalize=normalize)
             if verbose:
                 print(f"✅ Successfully processed {product_id} (rgb)")
             return img_384, img_full
