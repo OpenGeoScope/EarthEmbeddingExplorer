@@ -6,4 +6,4 @@ modelscope_ai.yaml
 .qwen/
 task.md
 *.ipynb
-*.pyc
+*.pyc__pycache__/
