@@ -117,7 +117,12 @@ def fragment_fn(img,
     if h == hf or w == wf:
         if not torch.is_tensor(img):
             img=torch.from_numpy(img).permute(2,0,1)
-        return img.view(1,1,c,h,w)
+        full = img.view(1,1,c,h,w)
+        if not return_indices:
+            return full
+        else:
+            offset = torch.zeros(1, 1, 2, dtype=torch.long)
+            return full, offset
 
     # Scenario 3 & 4
     

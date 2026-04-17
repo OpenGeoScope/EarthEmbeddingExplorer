@@ -9,21 +9,29 @@ parquet(s), and writes a GeoParquet file containing the embeddings and
 spatial metadata.
 
 Example:
-    python generate_embeddings.py \
-        --model_name dinov2 \
-        --meta_path /data384/datasets/Core-S2L2A/metadata.parquet \
-        --parquet_input /data384/datasets/Core-S2L2A/images/part_00001.parquet \
-        --output_path /data384/datasets/embeddings_test/dinov2_test.parquet
+python generate_embeddings.py \
+    --model_name dinov2 \
+    --meta_path /data384/datasets/Core-S2L2A/metadata.parquet \
+    --parquet_input /data384/datasets/Core-S2L2A/images/part_00001.parquet \
+    --output_path /data384/datasets/embeddings_test/dinov2_test.parquet \
+    --fragment_size 384
 """
 
 import argparse
+import hashlib
 import os
 import sys
 
+import cv2
+import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import torch
 from fsspec.parquet import open_parquet_file
+from pyproj import CRS, Transformer
+from shapely.geometry import box
+from shapely.ops import transform as shapely_transform
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -75,7 +83,67 @@ def resolve_meta_url(meta_path, parquet_file_path):
     return meta_path
 
 
-def generate_embeddings(model_name, meta_path, parquet_input, output_path, device=None, max_row_groups=None):
+def _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=None, footprint=None, crs=None):
+    """
+    Embed a pre-cropped image as a single fragment (no tiling).
+
+    Reads the image bands (or uses pre-read ones), optionally resizes to
+    fragment_size, encodes the whole image with the model, and returns a
+    GeoDataFrame with a single row.
+    """
+    if img is None:
+        img, footprint, crs = embedder._read_image(row)
+    h, w, c = img.shape
+
+    # Resize to target fragment_size if image is not exactly fragment_size
+    if h != fragment_size or w != fragment_size:
+        img_np = img.numpy() if torch.is_tensor(img) else np.array(img)
+        img_resized = cv2.resize(img_np, (fragment_size, fragment_size), interpolation=cv2.INTER_NEAREST)
+        img = torch.from_numpy(img_resized)
+    else:
+        img = img if torch.is_tensor(img) else torch.from_numpy(np.array(img))
+
+    # Encode whole image: (H,W,C) -> (1,C,H,W)
+    img_tensor = img.permute(2, 0, 1).unsqueeze(0).to(device)
+    with torch.no_grad():
+        embedding = embedder.embedder(img_tensor).cpu().numpy()[0]
+
+    pixel_bbox = [0, 0, fragment_size, fragment_size]
+    utm_footprint = footprint
+    transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
+    geometry = shapely_transform(transformer.transform, utm_footprint)
+    centre_lon, centre_lat = geometry.centroid.coords[0]
+
+    combined = f"{geometry}_{row_meta.timestamp.item()}_{row_meta.product_id.item()}_{embedding}"
+    unique_id = hashlib.sha256(combined.encode()).hexdigest()
+
+    row_dict = {
+        'unique_id': unique_id,
+        'embedding': embedding,
+        'timestamp': row_meta.timestamp.item(),
+        'product_id': row_meta.product_id.item(),
+        'grid_cell': row_meta.grid_cell.item(),
+        'grid_row_u': row_meta.grid_row_u.item(),
+        'grid_col_r': row_meta.grid_col_r.item(),
+        'geometry': geometry,
+        'centre_lat': centre_lat,
+        'centre_lon': centre_lon,
+        'utm_footprint': utm_footprint.wkt,
+        'utm_crs': crs.to_string(),
+        'pixel_bbox': pixel_bbox,
+    }
+
+    gdf = gpd.GeoDataFrame([row_dict])
+    column_types = {
+        'grid_row_u': 'int16',
+        'grid_col_r': 'int16',
+        'centre_lat': 'float32',
+        'centre_lon': 'float32',
+    }
+    return gdf.astype(column_types)
+
+
+def generate_embeddings(model_name, meta_path, parquet_input, output_path, device=None, max_row_groups=None, fragment_size=None):
     """Main embedding generation logic."""
     if model_name not in MODEL_MAP:
         raise ValueError(f"Unknown model: {model_name}. Choose from {list(MODEL_MAP.keys())}")
@@ -96,6 +164,13 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
     # Wrap with MajorTOM_Embedder
     embedder = MajorTOM_Embedder(model)
     embedder.to(device)
+
+    # Override fragment_size if specified (e.g. for pre-cropped 384x384 imagery)
+    if fragment_size is not None:
+        embedder.frag_params['fragment_size'] = fragment_size
+        print(f"Override fragment_size to {fragment_size}")
+
+    use_single_fragment = fragment_size is not None
 
     parquet_files = get_parquet_files(parquet_input)
     print(f"Found {len(parquet_files)} parquet file(s) to process.")
@@ -137,7 +212,16 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
                 print(f"  ⚠️ Metadata not found for {product_id} / {grid_cell}, skipping.")
                 continue
 
-            embed_dict = embedder(row, row_meta, device=device)
+            if use_single_fragment:
+                # Peek at image size to decide whether to tile or treat as a single fragment
+                img, footprint, crs = embedder._read_image(row)
+                h, w = img.shape[:2]
+                if h <= fragment_size and w <= fragment_size:
+                    embed_dict = _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=img, footprint=footprint, crs=crs)
+                else:
+                    embed_dict = embedder(row, row_meta, device=device)
+            else:
+                embed_dict = embedder(row, row_meta, device=device)
 
             if embed_df is None:
                 embed_df = embed_dict
@@ -178,6 +262,12 @@ def main():
                         help="Device to run on (cuda/cpu). Auto-detected if omitted.")
     parser.add_argument("--max_row_groups", type=int, default=None,
                         help="Maximum number of row groups to process per parquet file (default: all).")
+    parser.add_argument("--fragment_size", type=int, default=None,
+                        help=(
+                            "Override the default fragment size (model input size). "
+                            "Useful for pre-cropped imagery (e.g. 384x384) where each image "
+                            "should produce a single embedding instead of multiple fragments."
+                        ))
 
     args = parser.parse_args()
     generate_embeddings(
@@ -187,6 +277,7 @@ def main():
         output_path=args.output_path,
         device=args.device,
         max_row_groups=args.max_row_groups,
+        fragment_size=args.fragment_size,
     )
 
 
