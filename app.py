@@ -32,12 +32,6 @@ DOWNLOAD_ENDPOINT = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 if DOWNLOAD_ENDPOINT not in ("modelscope.cn", "modelscope.ai", "huggingface"):
     print("\n====== Warning: DOWNLOAD_ENDPOINT should be modelscope.cn, modelscope.ai, or huggingface! =====\n")
 
-# Make sure other files can find a download endpoint for safety.
-os.environ["DOWNLOAD_ENDPOINT"] = DOWNLOAD_ENDPOINT
-
-# select introduction based on download endpoint
-DOWNLOAD_ENDPOINT = os.getenv("ENDPOINT", 'modelscope.cn')
-
 # Initialize ModelManager (loads all models)
 model_manager = ModelManager()
 models = model_manager.models  # Keep for backward compatibility with existing code
