@@ -5,5 +5,16 @@ modelscope_ai.yaml
 *.pyc
 .qwen/
 task.md
+REPORT.md
+*.log
+fix_*.py
+add_*.py
 *.ipynb
 *.pyc__pycache__/
+tmp/
+config_local.yaml
+auto_upload.sh
+*.sh
+comparison_imagery.md
+test_*.py
+kimi*
