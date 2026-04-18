@@ -29,7 +29,7 @@ Whether you are an AI researcher exploring vision-language models, a remote-sens
     - [Pre-computed Embedding Datasets](#pre-computed-embedding-datasets)
   - [Quick Start](#quick-start)
     - [Local Deployment](#local-deployment)
-    - [Deploy on ModelScope Studio](#deploy-on-modelscope-studio)
+    - [Fork on ModelScope Studio](#fork-on-modelscope-studio)
   - [Examples](#examples)
     - [Text Search](#text-search)
     - [Image Search](#image-search)
@@ -177,11 +177,11 @@ python app.py
 By default the app will attempt to download models and embeddings from ModelScope (`modelscope.cn`). You can change the download endpoint via the environment variable:
 
 ```bash
-export DOWNLOAD_ENDPOINT="huggingface"  # options: modelscope.cn, modelscope.ai, huggingface
+export DOWNLOAD_ENDPOINT="modelscope.cn"  # options: modelscope.cn, modelscope.ai, huggingface (to be supported).
 python app.py
 ```
 
-### Deploy on ModelScope Studio
+### Fork on ModelScope Studio
 
 You can host your own instance of EarthEmbeddingExplorer on ModelScope Studio with free GPU access:
 
