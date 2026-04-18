@@ -41,6 +41,7 @@ from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
+from models.load_config import load_config
 
 
 MODEL_MAP = {
@@ -49,6 +50,21 @@ MODEL_MAP = {
     "farslip": FarSLIPModel,
     "satclip": SatCLIPModel,
 }
+
+
+def get_model_kwargs(model_name, device):
+    """Build model kwargs from config.yaml or defaults."""
+    kwargs = {"device": device}
+    config = load_config()
+    if config and model_name in config:
+        model_cfg = config[model_name]
+        if "ckpt_path" in model_cfg:
+            kwargs["ckpt_path"] = model_cfg["ckpt_path"]
+        if "model_name" in model_cfg:
+            kwargs["model_name"] = model_cfg["model_name"]
+        if "tokenizer_path" in model_cfg:
+            kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
+    return kwargs
 
 
 def get_parquet_files(parquet_input):
@@ -156,7 +172,8 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 
     # Load model (no embedding file needed)
     model_cls = MODEL_MAP[model_name]
-    model = model_cls(device=device)
+    model_kwargs = get_model_kwargs(model_name, device)
+    model = model_cls(**model_kwargs)
 
     print(f"Model bands: {model.bands}")
     print(f"Model input size: {model.size}")
