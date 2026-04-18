@@ -1,22 +1,12 @@
----
-domain: multi-modal
-tags:
-- earth-observation
-datasets:
-models:
-- timm/ViT-SO400M-14-SigLIP-384
-- facebook/dinov2-large
-license: apache-2.0
----
-
 # EarthEmbeddingExplorer
 
 <div align="center">
-  <a href="https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open%20in%20ModelScope.cn-xGPU-624aff"></a>
-  <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open%20in%20ModelScope.ai-xGPU-624aff"></a>
-  <a href="https://modelscope.cn/datasets/VoyagerX/EarthEmbeddings"><img src="https://img.shields.io/badge/👾%20MS--Dataset-624aff"></a>
-  <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings/tree/main"><img src="https://img.shields.io/badge/🤗%20HF--Dataset-FFD21E"></a>
-  <a href="https://openreview.net/forum?id=LSsEenJVqD"><img src="https://img.shields.io/badge/Tutorial-@ICLR26%20📖-007bff"></a>
+  <a href="https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.cn-xGPU-624aff"></a>
+  <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.ai-xGPU-624aff"></a>
+  <a href="https://modelscope.cn/collections/Major-TOM/Core-S2L2A-249k"><img src="https://img.shields.io/badge/👾 MS-Dataset-624aff"></a>
+  <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
+  <a href="https://arxiv.org/abs/2603.29441"> <img src="https://img.shields.io/badge/arXiv-@ICLR26📖-B31B1B"> </a>
+  <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/OpenReview-@ICLR26📖-007bff"> </a>
 </div>
 
 EarthEmbeddingExplorer is an interactive web application for **cross-modal retrieval of global satellite imagery**. It allows you to search the Earth using **natural language**, **images**, or **geographic coordinates** — no need to download terabytes of data or write a single line of code.
