@@ -295,7 +295,7 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
         # 2. Search
         yield None, None, "Encoding location... ✓\nRetrieving similar images...", None, None, None, None
         t0 = time.time()
-        probs, filtered_indices, top_indices = model.search(loc_features, top_percent=threshold / 100.0)
+        probs, filtered_indices, top_indices = model.search(loc_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
         # Apply post-search filters (time range, geo, etc.)
