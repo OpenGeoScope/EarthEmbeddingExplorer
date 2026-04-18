@@ -87,21 +87,22 @@ def _prepare_row_dict(product_id, df_source, verbose=True):
         url = row_dict['parquet_url']
         # Resolve relative paths to absolute paths
         if not url.startswith(('http://', 'https://', '/')):
-            candidate_bases = [
-                '/data384/datasets/Core-S2L2A-249k/',
-                '/data384/datasets/Core-S2L2A/',
-                './',
-            ]
-            resolved = False
-            for base in candidate_bases:
-                abs_path = os.path.join(base, url)
-                if os.path.exists(abs_path):
-                    row_dict['parquet_url'] = abs_path
-                    resolved = True
-                    break
-            if not resolved:
-                # Try as-is (fsspec may handle it)
-                pass
+            # candidate_bases = [
+            #     '/data384/datasets/Core-S2L2A-249k/',
+            #     '/data384/datasets/Core-S2L2A/',
+            #     './',
+            # ]
+            # resolved = False
+            # for base in candidate_bases:
+            #     abs_path = os.path.join(base, url)
+            #     if os.path.exists(abs_path):
+            #         row_dict['parquet_url'] = abs_path
+            #         resolved = True
+            #         break
+            # if not resolved:
+            #     # Try as-is (fsspec may handle it)
+            #     pass
+            pass    # disable load from local file
         elif 'huggingface.co' in url:
             row_dict['parquet_url'] = url.replace('https://huggingface.co', 'https://modelscope.cn').replace('resolve/main', 'resolve/master')
         elif 'hf-mirror.com' in url:
