@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
-
 class DINOv2Model:
     """
     DINOv2 model wrapper for Sentinel-2 RGB data embedding and search.
@@ -23,7 +22,7 @@ class DINOv2Model:
     """
 
     def __init__(self,
-                 ckpt_path="ms",
+                 ckpt_path=None,
                  model_name="facebook/dinov2-large",
                  embedding_path=None,
                  device=None):
@@ -31,10 +30,11 @@ class DINOv2Model:
         Initialize the DINOv2Model.
 
         Args:
-            ckpt_path (str): Path to local checkpoint directory or 'hf' for HuggingFace
-            model_name (str): HuggingFace model name (used when ckpt_path='hf')
-            embedding_path (str): Path to pre-computed embeddings parquet file
-            device (str): Device to use ('cuda', 'cpu', or None for auto-detection)
+            ckpt_path (str): Path to local checkpoint directory. If None or not found,
+                the model is downloaded according to DOWNLOAD_ENDPOINT env var.
+            model_name (str): Model identifier used for remote download.
+            embedding_path (str): Path to pre-computed embeddings parquet file.
+            device (str): Device to use ('cuda', 'cpu', or None for auto-detection).
         """
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
@@ -54,29 +54,29 @@ class DINOv2Model:
         if self.embedding_path is not None:
             self.load_embeddings()
 
+
     def load_model(self):
-        """Load DINOv2 model and processor from local checkpoint or HuggingFace."""
-        print(f"Loading DINOv2 model from {self.ckpt_path}...")
+        """Load DINOv2 model and processor from local path or remote repository."""
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+
+        if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
+            print(f"Loading DINOv2 model from local path: {self.ckpt_path}")
+            load_source = self.ckpt_path
+        elif endpoint in ("huggingface", "hf"):
+            print(f"Loading DINOv2 model from HuggingFace: {self.model_name}")
+            load_source = self.model_name
+        else:
+            print(f"Loading DINOv2 model from ModelScope: {self.model_name}")
+            load_source = self.model_name
+
         try:
-            if self.ckpt_path == 'hf':
-                # Load from HuggingFace
-                print(f"Loading from HuggingFace: {self.model_name}")
-                self.processor = AutoImageProcessor.from_pretrained(self.model_name)
-                self.model = AutoModel.from_pretrained(self.model_name)
-            elif self.ckpt_path.startswith('ms'):
-                # Load from ModelScope
-                import modelscope
-                if self.model_name.endswith('ai'):
-                    print(f"Loading from ModelScope AI: {self.model_name}")
-                    # get and print MODELSCOPE_DOMAIN environment variable for debugging
-                    modelscope_domain = os.getenv('MODELSCOPE_DOMAIN', 'Not Set')
-                    print(f"MODELSCOPE_DOMAIN: {modelscope_domain}")
-                    self.model_name = "VoyagerX/dinov2-large"
-                self.processor = modelscope.AutoImageProcessor.from_pretrained(self.model_name)
-                self.model = modelscope.AutoModel.from_pretrained(self.model_name)
+            if endpoint in ("huggingface", "hf"):
+                self.processor = AutoImageProcessor.from_pretrained(load_source)
+                self.model = AutoModel.from_pretrained(load_source)
             else:
-                self.processor = AutoImageProcessor.from_pretrained(self.ckpt_path)
-                self.model = AutoModel.from_pretrained(self.ckpt_path)
+                import modelscope
+                self.processor = modelscope.AutoImageProcessor.from_pretrained(load_source)
+                self.model = modelscope.AutoModel.from_pretrained(load_source)
 
             self.model = self.model.to(self.device)
             self.model.eval()

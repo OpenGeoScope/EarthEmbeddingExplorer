@@ -5,8 +5,6 @@ import numpy as np
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
-from huggingface_hub import hf_hub_download
-from modelscope.hub.snapshot_download import snapshot_download
 from PIL import Image
 
 try:
@@ -32,7 +30,7 @@ class FarSLIPModel:
     """
 
     def __init__(self,
-                 ckpt_path="ms",
+                 ckpt_path=None,
                  model_name="ViT-B-16",
                  embedding_path=None,
                  device=None):
@@ -40,22 +38,14 @@ class FarSLIPModel:
         Initialize the FarSLIPModel.
 
         Args:
-            ckpt_path (str): Path to local checkpoint or 'ms'/'hf' for remote download.
+            ckpt_path (str): Path to local checkpoint. If None or not found,
+                downloaded according to DOWNLOAD_ENDPOINT env var.
             model_name (str): Model architecture name.
             embedding_path (str): Path to pre-computed embeddings parquet file.
             device (str): Device to use ('cuda', 'cpu', or None for auto-detection).
         """
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
-        if 'hf' in ckpt_path:
-            ckpt_path = hf_hub_download("ZhenShiL/FarSLIP", "FarSLIP2_ViT-B-16.pt")
-        elif 'ms' in ckpt_path:
-            cache_dir = snapshot_download(
-                repo_id='VoyagerX/FarSLIP',
-                allow_file_pattern="FarSLIP2_ViT-B-16.pt"
-            )
-            ckpt_path = os.path.join(cache_dir, "FarSLIP2_ViT-B-16.pt")
-
         self.ckpt_path = ckpt_path
         self.embedding_path = embedding_path
 
@@ -75,7 +65,23 @@ class FarSLIPModel:
 
     def load_model(self):
         """Load FarSLIP model, tokenizer, and preprocessing pipeline."""
-        print(f"Loading FarSLIP model from {self.ckpt_path}...")
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+
+        if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
+            print(f"Loading FarSLIP model from local path: {self.ckpt_path}")
+        elif endpoint in ("huggingface", "hf"):
+            print("Loading FarSLIP model from HuggingFace...")
+            from huggingface_hub import hf_hub_download
+            self.ckpt_path = hf_hub_download("ZhenShiL/FarSLIP", "FarSLIP2_ViT-B-16.pt")
+        else:
+            print("Loading FarSLIP model from ModelScope...")
+            from modelscope.hub.snapshot_download import snapshot_download
+            cache_dir = snapshot_download(
+                repo_id='VoyagerX/FarSLIP',
+                allow_file_pattern="FarSLIP2_ViT-B-16.pt"
+            )
+            self.ckpt_path = os.path.join(cache_dir, "FarSLIP2_ViT-B-16.pt")
+
         try:
             if not os.path.exists(self.ckpt_path):
                 print(f"Warning: Checkpoint not found at {self.ckpt_path}")

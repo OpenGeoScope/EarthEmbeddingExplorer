@@ -5,8 +5,6 @@ import numpy as np
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
-from huggingface_hub import hf_hub_download
-from modelscope.hub.snapshot_download import snapshot_download
 from PIL import Image
 
 # Attempt to import get_satclip, but handle potential issues gracefully
@@ -29,32 +27,19 @@ class SatCLIPModel:
     """
 
     def __init__(self,
-                 ckpt_path='ms',
+                 ckpt_path=None,
                  embedding_path=None,
                  device=None):
         """
         Initialize the SatCLIPModel.
 
         Args:
-            ckpt_path (str): Path to local checkpoint or 'ms'/'hf' for remote download.
+            ckpt_path (str): Path to local checkpoint. If None or not found,
+                downloaded according to DOWNLOAD_ENDPOINT env var.
             embedding_path (str): Path to pre-computed embeddings parquet file.
             device (str): Device to use ('cuda', 'cpu', or None for auto-detection).
         """
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
-        if 'hf' in ckpt_path:
-            ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
-        elif 'ms' in ckpt_path:
-            if ckpt_path.endswith('ai'):
-                print("Using modelscope domain:", os.environ.get('MODELSCOPE_DOMAIN', 'not set'))
-                repo_id = "VoyagerX/SatCLIP-ViT16-L40"
-            else:
-                repo_id = "microsoft/SatCLIP-ViT16-L40"
-            cache_dir = snapshot_download(
-                repo_id=repo_id,
-                allow_file_pattern="satclip-vit16-l40.ckpt"
-            )
-            ckpt_path = os.path.join(cache_dir, "satclip-vit16-l40.ckpt")
-
         self.ckpt_path = ckpt_path
         self.embedding_path = embedding_path
 
@@ -79,7 +64,31 @@ class SatCLIPModel:
             print("Error: SatCLIP functionality is not available.")
             return
 
-        print(f"Loading SatCLIP model from {self.ckpt_path}...")
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+
+        if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
+            print(f"Loading SatCLIP model from local path: {self.ckpt_path}")
+        elif endpoint in ("huggingface", "hf"):
+            print("Loading SatCLIP model from HuggingFace...")
+            from huggingface_hub import hf_hub_download
+            self.ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
+        elif endpoint in ("modelscope.ai", "ai"):
+            print("Loading SatCLIP model from ModelScope (modelscope.ai)...")
+            from modelscope.hub.snapshot_download import snapshot_download
+            cache_dir = snapshot_download(
+                repo_id="VoyagerX/SatCLIP-ViT16-L40",
+                allow_file_pattern="satclip-vit16-l40.ckpt"
+            )
+            self.ckpt_path = os.path.join(cache_dir, "satclip-vit16-l40.ckpt")
+        else:
+            print("Loading SatCLIP model from ModelScope (modelscope.cn)...")
+            from modelscope.hub.snapshot_download import snapshot_download
+            cache_dir = snapshot_download(
+                repo_id="microsoft/SatCLIP-ViT16-L40",
+                allow_file_pattern="satclip-vit16-l40.ckpt"
+            )
+            self.ckpt_path = os.path.join(cache_dir, "satclip-vit16-l40.ckpt")
+
         try:
             if not os.path.exists(self.ckpt_path):
                 print(f"Warning: Checkpoint not found at {self.ckpt_path}")

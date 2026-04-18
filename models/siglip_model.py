@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from open_clip.tokenizer import HFTokenizer
 from PIL import Image
 
-
 class SigLIPModel:
     """
     SigLIP model wrapper for Sentinel-2 RGB data embedding and search.
@@ -21,18 +20,19 @@ class SigLIPModel:
     """
 
     def __init__(self,
-                 ckpt_path="ms",
+                 ckpt_path=None,
                  model_name="ViT-SO400M-14-SigLIP-384",
-                 tokenizer_path="ms",
+                 tokenizer_path=None,
                  embedding_path=None,
                  device=None):
         """
         Initialize the SigLIPModel.
 
         Args:
-            ckpt_path (str): Path to local checkpoint or 'ms'/'hf' for remote download.
+            ckpt_path (str): Path to local checkpoint. If None or not found,
+                downloaded according to DOWNLOAD_ENDPOINT env var.
             model_name (str): Model architecture name.
-            tokenizer_path (str): Path to tokenizer files.
+            tokenizer_path (str): Path to tokenizer files. If None, auto-resolved.
             embedding_path (str): Path to pre-computed embeddings parquet file.
             device (str): Device to use ('cuda', 'cpu', or None for auto-detection).
         """
@@ -58,28 +58,32 @@ class SigLIPModel:
 
     def load_model(self):
         """Load SigLIP model, tokenizer, and preprocessing pipeline."""
-        print(f"Loading SigLIP model from {self.ckpt_path}...")
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+
+        if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
+            print(f"Loading SigLIP model from local path: {self.ckpt_path}")
+            if self.tokenizer_path is None or not os.path.exists(self.tokenizer_path):
+                self.tokenizer_path = self.ckpt_path
+        elif endpoint in ("huggingface", "hf"):
+            print("Loading SigLIP model from HuggingFace...")
+            from huggingface_hub import snapshot_download
+            cache_dir = snapshot_download(repo_id="timm/ViT-SO400M-14-SigLIP-384")
+            self.tokenizer_path = cache_dir
+            self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
+        elif endpoint in ("modelscope.ai", "ai"):
+            print("Loading SigLIP model from ModelScope (modelscope.ai)...")
+            from modelscope.hub.snapshot_download import snapshot_download
+            cache_dir = snapshot_download(repo_id="VoyagerX/ViT-SO400M-14-SigLIP-384")
+            self.tokenizer_path = cache_dir
+            self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
+        else:
+            print("Loading SigLIP model from ModelScope (modelscope.cn)...")
+            from modelscope.hub.snapshot_download import snapshot_download
+            cache_dir = snapshot_download(repo_id="timm/ViT-SO400M-14-SigLIP-384")
+            self.tokenizer_path = cache_dir
+            self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
+
         try:
-            # Check if paths exist, if not try relative paths or raise warning
-            if not os.path.exists(self.ckpt_path):
-                print(f"Warning: Checkpoint not found at {self.ckpt_path}")
-
-            if 'hf' in self.ckpt_path:
-                from huggingface_hub import snapshot_download
-                cache_dir = snapshot_download(repo_id="timm/ViT-SO400M-14-SigLIP-384")
-                self.tokenizer_path = cache_dir
-                self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
-
-            elif 'ms' in self.ckpt_path:
-                from modelscope.hub.snapshot_download import snapshot_download
-                if self.ckpt_path.endswith("cn"):
-                    repo_id = "timm/ViT-SO400M-14-SigLIP-384"
-                else:
-                    repo_id = "VoyagerX/ViT-SO400M-14-SigLIP-384"
-                cache_dir = snapshot_download(repo_id=repo_id)
-                self.tokenizer_path = cache_dir
-                self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
-
             self.tokenizer = HFTokenizer(self.tokenizer_path)
             self.model, _, self.preprocess = open_clip.create_model_and_transforms(
                 self.model_name,
