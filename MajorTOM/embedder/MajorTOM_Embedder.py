@@ -185,6 +185,8 @@ class MajorTOM_Embedder(torch.nn.Module):
                     'utm_footprint' : utm_footprint.wkt,
                     'utm_crs' : crs.to_string(),
                     'pixel_bbox' : pixel_bbox,
+                    'parquet_row' : row_meta.parquet_row.item() if 'parquet_row' in row_meta.columns else None,
+                    'parquet_url' : row_meta.parquet_url.item() if 'parquet_url' in row_meta.columns else None,
                 }
                 df_rows.append(row_dict)
 
