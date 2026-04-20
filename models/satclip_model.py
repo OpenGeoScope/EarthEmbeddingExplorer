@@ -74,6 +74,7 @@ class SatCLIPModel:
             self.ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
         elif endpoint in ("modelscope.ai", "ai"):
             print("Loading SatCLIP model from ModelScope (modelscope.ai)...")
+            os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
             cache_dir = snapshot_download(
                 repo_id="VoyagerX/SatCLIP-ViT16-L40",

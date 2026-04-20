@@ -72,6 +72,7 @@ class SigLIPModel:
             self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
         elif endpoint in ("modelscope.ai", "ai"):
             print("Loading SigLIP model from ModelScope (modelscope.ai)...")
+            os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
             cache_dir = snapshot_download(repo_id="VoyagerX/ViT-SO400M-14-SigLIP-384")
             self.tokenizer_path = cache_dir

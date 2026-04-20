@@ -74,7 +74,9 @@ class FarSLIPModel:
             from huggingface_hub import hf_hub_download
             self.ckpt_path = hf_hub_download("ZhenShiL/FarSLIP", "FarSLIP2_ViT-B-16.pt")
         else:
-            print("Loading FarSLIP model from ModelScope...")
+            print(f"Loading FarSLIP model from {endpoint}...")
+            if endpoint == "modelscope.ai":
+                os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
             cache_dir = snapshot_download(
                 repo_id='VoyagerX/FarSLIP',

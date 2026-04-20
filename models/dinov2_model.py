@@ -71,6 +71,7 @@ class DINOv2Model:
         elif endpoint == "modelscope.ai":
             print(f"Loading DINOv2 model from ModelScope: VoyagerX/dinov2-large")
             load_source = "VoyagerX/dinov2-large"
+            os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
         else:
             print(f"Unknown DOWNLOAD_ENDPOINT '{endpoint}', defaulting to modelscope.cn")
             load_source = self.model_name
