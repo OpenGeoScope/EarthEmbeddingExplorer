@@ -132,6 +132,7 @@ div.form:has(.filter-checkbox) {
                         examples=[
                             ["a satellite image of a river around a city"],
                             ["a satellite image of a rainforest"],
+                            ["a satellite image with rectangular cattle pasture clearings, dust-toned access roads, and remaining rainforest blocks"],
                             ["a satellite image of a slum"],
                             ["a satellite image of a glacier"],
                             ["a satellite image of snow covered mountains"],
