@@ -40,7 +40,7 @@ INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款工具跨模态遥感图像�
 INTRODUCTION_EN = "EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type \"tropical rainforest\" or \"coastline with a city,\" and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images."
 
 if DOWNLOAD_ENDPOINT == 'modelscope.cn':
-    introduction = INTRODUCTION_ZH
+    introduction = INTRODUCTION_ZH + '<br>' + INTRODUCTION_EN
 else:
     introduction = INTRODUCTION_EN
 
