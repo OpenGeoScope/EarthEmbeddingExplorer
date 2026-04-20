@@ -618,7 +618,7 @@ def search_mixed(
 
         # Sort by score descending
         sorted_order = np.argsort(final_scores)[::-1]
-        top_indices = sorted_order[: max(10, int(len(final_scores) * top_percent))]
+        top_indices = sorted_order[: max(5, int(len(final_scores) * top_percent))]
         timings["Retrieval"] = time.time() - t0
 
         # Apply post-search filters
@@ -659,7 +659,7 @@ def search_mixed(
             gr.update(value=geo_dist_map, visible=True),
         )
         t0 = time.time()
-        top_indices = top_indices[:10]
+        top_indices = top_indices[:5]
         results = _fetch_top_k_images(top_indices, final_scores, df_ref, query_text=query_info)
         timings["Download"] = time.time() - t0
 
