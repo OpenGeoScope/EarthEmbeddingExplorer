@@ -22,19 +22,19 @@ Whether you are an AI researcher exploring vision-language models, a remote-sens
   - [Overview](#overview)
   - [How It Works](#how-it-works)
     - [Satellite Imagery Dataset](#satellite-imagery-dataset)
-    - [Retrieval Models](#retrieval-models)
+    - [Embedding Models](#embedding-models)
     - [System Architecture](#system-architecture)
   - [Datasets \& Pre-computed Embeddings](#datasets--pre-computed-embeddings)
     - [Source Imagery](#source-imagery)
     - [Pre-computed Embedding Datasets](#pre-computed-embedding-datasets)
   - [Quick Start](#quick-start)
+    - [Use on ModelScope Studio](#use-on-modelscope-studio)
     - [Local Deployment](#local-deployment)
-    - [Fork on ModelScope Studio](#fork-on-modelscope-studio)
   - [Examples](#examples)
     - [Text Search](#text-search)
     - [Image Search](#image-search)
     - [Location Search](#location-search)
-  - [Limitations](#limitations)
+  - [Insights from Cross-Modal Retrieval](#insights-from-cross-modal-retrieval)
   - [Roadmap](#roadmap)
   - [Acknowledgements](#acknowledgements)
   - [Citation](#citation)
@@ -46,14 +46,14 @@ Whether you are an AI researcher exploring vision-language models, a remote-sens
 
 Imagine being able to type *"a satellite image of a glacier"* or *"a city with a coastline"* and instantly see matching locations on a world map, together with the actual satellite imagery. That is what EarthEmbeddingExplorer does.
 
-Under the hood, the application encodes your query and ~250,000 satellite images into **embedding vectors** — compact numerical representations that capture semantic meaning. By measuring vector similarity, the system finds the most relevant images across the globe and visualizes them interactively.
+Under the hood, the application encodes your query and ~249k satellite images into **embedding vectors** — compact numerical representations that capture semantic meaning. By measuring vector similarity, the system finds the most relevant images across the globe and visualizes them interactively.
 
 **Key features:**
 - 🔍 **Text-to-Image Retrieval** — Search satellite imagery with free-form natural language.
 - 🖼️ **Image-to-Image Retrieval** — Upload a photo and find visually similar locations on Earth.
 - 📍 **Location-to-Image Retrieval** — Input GPS coordinates or click on a map to discover what a specific place looks like from space.
 - ⚡ **Near Real-Time Search** — Pre-computed embeddings and on-demand HTTP Range requests make retrieval fast without downloading the full dataset.
-- 🌍 **Global Coverage** — Based on the ESA [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) dataset, covering the Earth's land surface with Sentinel-2 imagery.
+- 🌍 **Global Coverage** — Based on the [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) dataset, covering the Earth's land surface with Sentinel-2 imagery.
 
 ---
 
@@ -61,7 +61,7 @@ Under the hood, the application encodes your query and ~250,000 satellite images
 
 ### Satellite Imagery Dataset
 
-We use **[MajorTOM](https://github.com/ESA-PhiLab/MajorTOM)** (Major TOM: Expandable Datasets for Earth Observation), a large-scale dataset released by the European Space Agency (ESA). Specifically, we work with the **Core-S2L2A** subset, which provides global Sentinel-2 Level-2A multispectral imagery at 10 m ground resolution.
+We use **[MajorTOM](https://github.com/ESA-PhiLab/MajorTOM)** (Major TOM: Expandable Datasets for Earth Observation), a large-scale dataset released by the European Space Agency (ESA). Specifically, we work with the [**Core-S2L2A-249k**](https://modelscope.cn/organization/Major-TOM?tab=collection) subset, which provides global Sentinel-2 Level-2A multispectral imagery at 10 m ground resolution.
 
 | Dataset | Source | Samples | Sensor |
 | :--- | :--- | :--- | :--- |
@@ -70,7 +70,7 @@ We use **[MajorTOM](https://github.com/ESA-PhiLab/MajorTOM)** (Major TOM: Expand
 Because the original tiles are large (1068 × 1068 pixels) and the full dataset exceeds 23 TB, we create a lightweight, search-friendly version:
 
 1. **Center Cropping** — From each tile we extract the central 384 × 384 patch, which matches the input size expected by modern vision transformers.
-2. **Uniform Sampling** — Using MajorTOM's hierarchical grid coding system, we sample roughly **1%** of the data (~250,000 images). This preserves global geographic coverage while keeping the embedding index small enough for interactive search.
+2. **Uniform Sampling** — Using MajorTOM's hierarchical grid coding system, we sample roughly **1%** of the data (~249k images). This preserves global geographic coverage while keeping the embedding index small enough for interactive search.
 
 <div align="center">
   <img src="images/samples.png" width="60%" />
@@ -78,19 +78,10 @@ Because the original tiles are large (1068 × 1068 pixels) and the full dataset 
   <em>Geographic distribution of our sampled satellite-image embeddings.</em>
 </div>
 
-### Retrieval Models
+### Embedding Models
 
-The retrieval engine is powered by four complementary foundation models. If you are coming from an AI background, think of them as different "encoders" that map images, text, or coordinates into a shared latent space. If you are coming from remote sensing, think of them as feature extractors that turn raw pixels (and optional metadata) into comparable signatures.
+The retrieval engine is powered by four complementary embedding models. Think of them as different "encoders" that map images, text, or coordinates into a shared latent space. If you are coming from remote sensing, think of them as feature extractors that turn raw pixels (and optional metadata) into comparable signatures.
 
-**The core idea (CLIP-like alignment):**
-
-Models such as **CLIP** [2] learn to align images and text by training on massive pairs of (image, caption) data from the web. An *image encoder* compresses a photo into a vector; a *text encoder* does the same for a sentence. The key property is that semantically matching pairs end up close together in vector space, while unrelated pairs are far apart.
-
-<div align="center">
-  <img src="images/CLIP.png" width="40%" />
-  <br>
-  <em>How CLIP-like models connect images and text in a shared embedding space.</em>
-</div>
 
 **The four models we use:**
 
@@ -106,6 +97,14 @@ Models such as **CLIP** [2] learn to align images and text by training on massiv
 - **SatCLIP** jointly encodes images and their geographic coordinates, enabling queries like *"show me places near (lat, lon)"*.
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
 
+Models such as **CLIP** [2] learn to align images and text by training on massive pairs of (image, caption) data from the web. An *image encoder* compresses a photo into a vector; a *text encoder* does the same for a sentence. The key property is that semantically matching pairs end up close together in vector space, while unrelated pairs are far apart.
+
+<div align="center">
+  <img src="images/CLIP.png" width="40%" />
+  <br>
+  <em>How contrastive learning connect images and texts/locations in a shared embedding space.</em>
+</div>
+
 <div align="center">
   <img src="images/embedding.png" width="30%" />
   <br>
@@ -113,7 +112,7 @@ Models such as **CLIP** [2] learn to align images and text by training on massiv
 </div>
 
 **Search pipeline:**
-1. We pre-compute embeddings for all ~250,000 sampled satellite images using each of the four models.
+1. We pre-compute embeddings for all ~249k sampled satellite images using each of the four models.
 2. When you submit a query (text, image, or coordinates), the app encodes it with the corresponding model's encoder.
 3. Cosine similarity scores are computed against the entire image index.
 4. High-scoring locations are plotted on an interactive map, and the top-5 most similar images are fetched on demand.
@@ -129,8 +128,8 @@ Models such as **CLIP** [2] learn to align images and text by training on massiv
 The application is designed for cloud-native deployment on [ModelScope](https://www.modelscope.cn/):
 
 - **Models & embeddings** are hosted on ModelScope (or Hugging Face) and downloaded on first use.
-- **Raw imagery** stays in remote Parquet shards. We maintain a lightweight metadata index (`product_id → parquet_url, parquet_row`) so the app knows exactly which shard and row contain a given image.
-- **On-demand fetching** uses HTTP Range requests to download only the necessary byte ranges (target row groups and RGB columns) from a Parquet file. This avoids downloading the full 23 TB dataset and enables near real-time image display.
+- **Raw imagery** stays in remote Parquet shards. Each row of the embedding dataset contains the fields `parquet_url` and `parquet_row`, so once an embedding is retrieved, the system immediately knows which remote Parquet shard and which row contain the corresponding raw image—no extra index lookup is needed.
+- **On-demand fetching** uses HTTP Range requests to download only the necessary byte ranges (target row groups and the thumbnail column) from a Parquet file. This avoids downloading the full 23 TB dataset and enables near real-time image display.
 - **GPU acceleration** is provided by [xGPU](https://www.modelscope.cn/brand/view/xGPU), allowing flexible allocation of GPU resources for encoding queries.
 
 ---
@@ -141,7 +140,7 @@ The application is designed for cloud-native deployment on [ModelScope](https://
 
 | Dataset | Link | Description |
 | :--- | :--- | :--- |
-| Core-S2L2A-249k | [ModelScope](https://modelscope.cn/datasets/VoyagerX/Core-S2L2A-249k) | Sampled subset of MajorTOM Core-S2L2A used in this project |
+| Core-S2L2A-249k | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k) | Sampled subset of MajorTOM Core-S2L2A used in this project |
 
 ### Pre-computed Embedding Datasets
 
@@ -149,16 +148,20 @@ Each embedding dataset contains the vector representation of every sampled image
 
 | Model | Embedding Dataset | Link |
 | :--- | :--- | :--- |
-| SigLIP | Core-S2RGB-249k-SigLIP | [ModelScope](https://modelscope.cn/datasets/VoyagerX/Core-S2RGB-249k-SigLIP) |
-| FarSLIP | Core-S2RGB-249k-FarSLIP | [ModelScope](https://modelscope.cn/datasets/VoyagerX/Core-S2RGB-249k-FarSLIP) |
-| DINOv2 | Core-S2RGB-249k-DINOv2 | [ModelScope](https://modelscope.cn/datasets/VoyagerX/Core-S2RGB-249k-DINOv2) |
-| SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/VoyagerX/Core-S2RGB-249k-SatCLIP) |
+| SigLIP | Core-S2RGB-249k-SigLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SigLIP) |
+| FarSLIP | Core-S2RGB-249k-FarSLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-FarSLIP) |
+| DINOv2 | Core-S2RGB-249k-DINOv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-DINOv2) |
+| SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SatCLIP) |
 
 > **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
 
 ---
 
 ## Quick Start
+
+### Use on ModelScope Studio
+
+EarthEmbeddingExplorer is hosted live on [ModelScope Studio](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer) ([modelscope.cn](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer) for China, [modelscope.ai](https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer) for international users) and [Hugging Face Spaces](https://huggingface.co/spaces/ML4Sustain/EarthExplorer). We recommend ModelScope for the smoothest experience: it provides free GPU resources and optimized bandwidth for downloading imagery directly from the Parquet shards.
 
 ### Local Deployment
 
@@ -174,32 +177,16 @@ pip install -r requirements.txt
 python app.py
 ```
 
-By default the app will attempt to download models and embeddings from ModelScope (`modelscope.cn`). You can change the download endpoint via the environment variable:
+By default the app downloads models and embeddings from ModelScope. You can switch the download endpoint via the environment variable:
 
 ```bash
-export DOWNLOAD_ENDPOINT="modelscope.cn"  # options: modelscope.cn, modelscope.ai, huggingface (to be supported).
+export DOWNLOAD_ENDPOINT="modelscope.cn"  # China users (fastest domestic access)
+# export DOWNLOAD_ENDPOINT="modelscope.ai"  # International users (ModelScope global)
+# export DOWNLOAD_ENDPOINT="huggingface"    # International users (Hugging Face)
 python app.py
 ```
 
-### Fork on ModelScope Studio
-
-You can host your own instance of EarthEmbeddingExplorer on ModelScope Studio with free GPU access:
-
-1. **(Optional)** Apply to join the [xGPU-Explorers organization](https://modelscope.cn/organization/xGPU-Explorers) on ModelScope.cn (or [modelscope.ai](https://modelscope.ai/organization/xGPU-Explorers)) to unlock GPU backend resources.
-
-2. **Fork the studio** by clicking **Duplicate** on the project page.
-
-   ![Duplicate Space](images/duplicate_space.png)
-
-3. **Configure resources & environment variables.** Select an appropriate GPU instance and set `DOWNLOAD_ENDPOINT` to your preferred source (`modelscope.cn`, `modelscope.ai`, or `huggingface`).
-
-   ![Config Studio](images/config_studio.png)
-
-4. **Publish** your studio.
-
-   ![Publish Studio](images/publish_studio.png)
-
-For detailed instructions, please refer to the official [ModelScope Studio documentation](https://modelscope.ai/docs/studios/intro).
+> **Tip:** If you are in mainland China, use `modelscope.cn` for the fastest download speeds. International users should use `modelscope.ai` or `huggingface`.
 
 ---
 
@@ -234,24 +221,26 @@ Click on the map or enter GPS coordinates to discover what that place looks like
 
 ---
 
-## Limitations
+## Insights from Cross-Modal Retrieval
 
-- **Domain gap in SigLIP:** SigLIP is trained primarily on natural images from the web (people, pets, everyday objects). Scientific or geospatial terms that rarely appear in web captions may be poorly understood.
-- **FarSLIP specificity:** Because FarSLIP is specialized for remote-sensing concepts, it can underperform on generic non-RS queries (e.g., *"an image of a face"*).
-- **Spatial resolution:** We use 384 × 384 center crops from 1068 × 1068 Sentinel-2 tiles. Very small objects or fine textures may be lost during cropping and resizing.
-- **Search latency:** Exact brute-force similarity search over 250k vectors is fast on GPU, but may become a bottleneck if the index grows significantly. We plan to add FAISS-based approximate search in the future.
+EarthEmbeddingExplorer doubles as a **diagnostic tool** for embedding models.Comparing how different encoders respond to the same query quickly reveals domain gaps and geographic biases invisible to static benchmarks. For example:
+
+- **Domain gap.** SigLIP, trained on everyday web images, often stumbles on geoscientific terms (e.g., *"glacier"*, *"salt evaporation ponds"*). FarSLIP closes this gap via RS-specific fine-tuning, yet then underperforms on generic non-RS queries—exposing a specialization–generality trade-off.
+
+- **Geographic bias.** Side-by-side maps show uneven global priors. For *"snow covered mountains"*, FarSLIP concentrates on Asia’s high-elevation belts (Himalayas, Kunlun, Tianshan), while SigLIP favors the Andes and New Zealand’s Southern Alps. For *"glacier"*, FarSLIP retrieves polar and Antarctic regions, whereas SigLIP omits Antarctica—likely because polar imagery is absent from its pre-training corpus. Even well-specified prompts occasionally return mismatched patches (e.g., ocean tiles for land-cover concepts), pointing to limited geographic awareness in current embedding spaces.
+
+For more details, please check our [tutorial paper on arXiv](https://arxiv.org/abs/2603.29441).
 
 ---
 
 ## Roadmap
 
-- [x] Support DINOv2 embedding model and embedding datasets.
-- [x] Increase geographic coverage to ~1.2% of Earth's land surface (~250k samples).
 - [ ] Integrate FAISS for faster approximate nearest-neighbor search.
-- [ ] Support additional embedding models .
+- [ ] Support additional embedding models and datasets.
+- [ ] Increase the coverage of embedding datasets.
 - [ ] What features do you want? Leave an issue or start a discussion!
 
-We warmly welcome new contributors. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We warmly welcome new contributors. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on generating a new embedding dataset and submitting a pr.
 
 ---
 
