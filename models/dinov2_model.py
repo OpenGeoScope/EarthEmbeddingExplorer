@@ -57,20 +57,26 @@ class DINOv2Model:
 
     def load_model(self):
         """Load DINOv2 model and processor from local path or remote repository."""
-        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT").lower()
 
         if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
             print(f"Loading DINOv2 model from local path: {self.ckpt_path}")
             load_source = self.ckpt_path
-        elif endpoint in ("huggingface", "hf"):
+        elif endpoint == "huggingface":
             print(f"Loading DINOv2 model from HuggingFace: {self.model_name}")
             load_source = self.model_name
-        else:
+        elif endpoint == "modelscope.cn":
             print(f"Loading DINOv2 model from ModelScope: {self.model_name}")
+            load_source = self.model_name
+        elif endpoint == "modelscope.ai":
+            print(f"Loading DINOv2 model from ModelScope: VoyagerX/dinov2-large")
+            load_source = "VoyagerX/dinov2-large"
+        else:
+            print(f"Unknown DOWNLOAD_ENDPOINT '{endpoint}', defaulting to modelscope.cn")
             load_source = self.model_name
 
         try:
-            if endpoint in ("huggingface", "hf"):
+            if endpoint == "huggingface":
                 self.processor = AutoImageProcessor.from_pretrained(load_source)
                 self.model = AutoModel.from_pretrained(load_source)
             else:
