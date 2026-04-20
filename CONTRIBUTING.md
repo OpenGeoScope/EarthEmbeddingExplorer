@@ -2,29 +2,71 @@
 
 ## Welcome! 🌍
 
-Thank you for your interest in contributing to EarthEmbeddingExplorer! EarthEmbeddingExplorer is an open-source tool that lets you search satellite imagery using **natural language**, **images**, or **geographic locations**. It enables cross-modal retrieval of global satellite images and visualizes them on an interactive map.
+Thank you for your interest in contributing to EarthEmbeddingExplorer! This is an open-source tool for **cross-modal retrieval of global satellite imagery** using natural language, images, or geographic coordinates.
 
-We warmly welcome contributions that help make EarthEmbeddingExplorer more useful for geoscience research, education, and exploration: whether you add new embedding models, improve retrieval performance, enhance the UI, fix bugs, or improve documentation.
+We warmly welcome contributions that make the project more useful for geoscience research, education, and exploration: new embedding models, new datasets, retrieval performance improvements, UI enhancements, bug fixes, and documentation improvements.
 
-**Quick links:** [GitHub](https://github.com/ML4Sustain/EarthEmbeddingExplorer) · [ModelScope Demo](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/) · [HuggingFace Demo](https://huggingface.co/spaces/ML4Sustain/EarthExplorer) · [Tutorial](https://huggingface.co/spaces/ML4Sustain/EarthExplorer/blob/main/Tutorial.md) · [License](LICENSE)
+**Quick links:** [GitHub](https://github.com/VoyagerXvoyagerx/EarthEmbeddingExplorer) · [ModelScope Demo](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/) · [HuggingFace Demo](https://huggingface.co/spaces/ML4Sustain/EarthExplorer) · [Tutorial Paper](https://arxiv.org/abs/2603.29441)
+
+---
+
+## Project Architecture Overview
+
+Before you start, here is a quick map of the codebase:
+
+```
+EarthEmbeddingExplorer/
+├── app.py                      # Gradio web app entry point
+├── core/
+│   ├── model_manager.py        # Loads all 4 models (SigLIP, FarSLIP, SatCLIP, DINOv2)
+│   ├── search_engine.py        # Text / image / location / mixed search logic
+│   ├── filters.py              # Post-search time & geo filters
+│   └── exporters.py            # Download results as ZIP
+├── ui/
+│   ├── callbacks.py            # Gradio UI callbacks (map click, reset, etc.)
+│   └── utils.py                # UI helpers
+├── models/
+│   ├── siglip_model.py         # SigLIP wrapper
+│   ├── farslip_model.py        # FarSLIP wrapper
+│   ├── satclip_model.py        # SatCLIP wrapper
+│   ├── dinov2_model.py         # DINOv2 wrapper
+│   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
+├── data_utils.py               # Parquet HTTP-Range download, image processing
+├── visualize.py                # Map plotting, gallery formatting
+├── generate_embeddings.py      # CLI script to generate embedding GeoParquets
+├── MajorTOM/
+│   └── embedder/
+│       ├── MajorTOM_Embedder.py   # Fragments images & runs model forward pass
+│       └── models/                # Embedder-specific model adapters
+└── configs/
+    └── config.yaml             # Model checkpoints & embedding dataset paths
+```
+
+**Key design principles:**
+- **Unified model interface:** Every model in `models/` exposes `encode_text()`, `encode_image()`, `encode_location()`, and `search()`.
+- **Local-first, remote-fallback:** `models/load_config.py` resolves `hf://` and `ms://` URLs automatically.
+- **On-demand imagery:** The app never downloads the full dataset; it fetches individual rows via HTTP Range requests using `parquet_url` + `parquet_row` stored in each embedding.
 
 ---
 
 ## How to Contribute
 
-To keep collaboration smooth and maintain quality, please follow these guidelines.
+### 1. Fork & Clone
 
-### 1. Check Existing Issues and Roadmap
+```bash
+git clone https://github.com/YOUR_USERNAME/EarthEmbeddingExplorer.git
+cd EarthEmbeddingExplorer
+```
 
-Before starting:
+### 2. Create a Branch
 
-- **Check [Open Issues](https://github.com/ML4Sustain/EarthEmbeddingExplorer/issues)** and our [Roadmap](#roadmap--contribution-priorities) below.
-- **If a related issue exists** and is open or unassigned: comment to say you want to work on it to avoid duplicate effort.
-- **If no related issue exists**: open a new issue describing your proposal. The maintainers will respond and can help align with the project direction.
+```bash
+git checkout -b feat/your-feature-name
+```
 
-### 2. Commit Message Format
+### 3. Commit Message Format
 
-We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for clear history and tooling.
+We follow [Conventional Commits](https://www.conventionalcommits.org/).
 
 **Format:**
 ```
@@ -35,7 +77,7 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 - `feat:` New feature
 - `fix:` Bug fix
 - `docs:` Documentation only
-- `style:` Code style (whitespace, formatting, etc.)
+- `style:` Code style (formatting, whitespace)
 - `refactor:` Code change that neither fixes a bug nor adds a feature
 - `perf:` Performance improvement
 - `test:` Adding or updating tests
@@ -43,21 +85,21 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 
 **Examples:**
 ```bash
-feat(models): add FarSLIP embedding model
+feat(models): add RemoteCLIP embedding model
 fix(app): correct similarity threshold slider behavior
 docs(readme): update dataset description
-refactor(data_utils): simplify parquet shard loading
-test(visualize): add tests for embedding normalization
+refactor(search_engine): simplify score fusion in mixed search
 ```
 
-### 3. Pull Request Title Format
+### 4. Pull Request Title Format
 
-PR titles should follow the same convention:
+PR titles follow the same convention:
 
-**Format:** ` <type>(<scope>): <description> `
+```
+<type>(<scope>): <description>
+```
 
-- Use one of: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `perf`, `style`, `build`, `revert`.
-- **Scope must be lowercase** (letters, numbers, hyphens, underscores only).
+- Scope must be **lowercase**.
 - Keep the description short and descriptive.
 
 **Examples:**
@@ -65,181 +107,209 @@ PR titles should follow the same convention:
 feat(models): add DINOv2 for visual similarity search
 fix(app): handle empty query input gracefully
 docs(tutorial): add Chinese translation
-refactor(data_utils): optimize HTTP range request logic
 ```
 
-### 4. Code Style and Quality
+### 5. Code Style and Quality
 
-We use **[Ruff](https://github.com/astral-sh/ruff)** to enforce consistent code style and catch common errors automatically.
-
-#### Setup Ruff
+We use **[Ruff](https://github.com/astral-sh/ruff)** for linting and formatting.
 
 ```bash
-# Install Ruff
+# Install
 pip install ruff
 
-# Run code style checks
-ruff check .
-
-# Auto-fix fixable issues
-ruff check --fix .
-
-# Format code
-ruff format .
-```
-
-#### Configuration
-
-Ruff is configured in `pyproject.toml` with the following rules enabled:
-
-| Rule | Description |
-|------|-------------|
-| `E` | pycodestyle errors |
-| `F` | pyflakes (unused imports/variables) |
-| `I` | isort (import sorting) |
-| `W` | pycodestyle warnings |
-| `N` | pep8-naming (naming conventions) |
-| `UP` | pyupgrade (modern syntax) |
-| `RUF` | Ruff-specific rules |
-| `B` | flake8-bugbear (common bug patterns) |
-
-#### Required local gate (must pass before push/PR):
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run Ruff checks
+# Check
 ruff check .
 ruff format . --check
 
-# Run tests (if applicable)
-pytest
+# Auto-fix
+ruff check --fix .
+ruff format .
 ```
 
-- **If pre-commit modifies files:** Commit those changes, then rerun until it passes cleanly.
-- **CI policy:** Pull requests with failing Ruff checks are not merge-ready.
-- **Documentation:** Update docs and README when you add or change user-facing behavior.
+**Note:** `pyproject.toml` excludes `MajorTOM/` and `models/` from Ruff because they contain third-party forks. Please do **not** re-format files inside those directories unless you are deliberately modifying them.
+
+**Rules enabled:** `E`, `F`, `I`, `W`, `N`, `UP`, `RUF`, `B`
 
 ---
 
-## Types of Contributions
+## Deployment Guide (for Contributors)
 
-EarthEmbeddingExplorer is designed to be **extensible**: you can add new embedding models, datasets, visualization features, and more. Below are the main contribution areas we care about.
+If you want to deploy your fork to ModelScope Studio for live testing:
+
+### 1. Duplicate the modelscope studio
+
+1. **(Optional)** Apply to join [xGPU-Explorers](https://modelscope.cn/organization/xGPU-Explorers) for free GPU access.
+2. Click **Duplicate** on the [project page](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/).
+3. Configure resources and set `DOWNLOAD_ENDPOINT`:
+   - `modelscope.cn` — mainland China (fastest)
+   - `modelscope.ai` — international users
+4. Publish your studio.
+
+### 2. Push git push the code to modelscope studio
+
+1. Fork the GitHub repo and push your branch:
+   ```bash
+   git remote add origin https://github.com/YOUR_USERNAME/EarthEmbeddingExplorer.git
+   git push origin your-branch
+   ```
+
+2. In ModelScope Studio, click **Download Studio** to get the Git URL with your access token.
+
+![download](images/download_studio.png)
+
+3. Add ModelScope as an upstream remote:
+   ```bash
+   git remote add modelscope https://oauth2:YOUR_TOKEN@www.modelscope.ai/studios/.../EarthEmbeddingExplorer.git
+   git push modelscope your-branch:master
+   ```
+
+4. Go to settings and restart or deep reboot the studio.
+
+5. Verify the deployed studio works, then open a PR on GitHub.
 
 ---
 
-### Adding New Embedding Models
+## Contribution Areas
 
-EarthEmbeddingExplorer currently supports multiple embedding models, including **SigLIP**, **DINOv2**, **FarSLIP**, and **SatCLIP**. We welcome new models that can enhance retrieval quality or support new modalities.
+### Adding a New Embedding Model
 
-Contributed models should have the following characteristics:
+We welcome new vision-language or vision-only models that improve retrieval quality or support new modalities (e.g., temporal, multi-spectral).
 
-1. (Required) Compatible with the existing embedding pipeline (`data_utils.py` and `visualize.py`). The model should be able to encode images, text, or locations into embeddings that can be compared via similarity metrics.
-2. (Required) Open-source weights and inference code available (e.g., on HuggingFace or GitHub).
-3. (Recommended) Pre-trained on remote sensing or geospatial data, or fine-tuned for specific Earth observation tasks.
+**Required interface:** Every model lives in `models/<name>_model.py` and must implement:
 
-If you wish to submit a Pull Request, please ensure that the following conditions are met:
+| Method | Purpose |
+| :--- | :--- |
+| `__init__(ckpt_path, embedding_path, device)` | Load config, set paths, lazy-load weights in `load_model()` |
+| `load_model()` | Download weights if needed (respect `DOWNLOAD_ENDPOINT`), initialize inference model |
+| `encode_text(text)` | Return a text embedding `torch.Tensor` (or `None` if unsupported) |
+| `encode_image(PIL.Image)` | Return an image embedding `torch.Tensor` (or `None` if unsupported) |
+| `encode_location(lat, lon)` | Return a location embedding `torch.Tensor` (or `None` if unsupported) |
+| `search(query_embedding, top_percent)` | Compute cosine similarity against `self.image_embeddings`, return `(probs, filtered_indices, top_indices)` |
 
-1. (Required) Include model loading and encoding logic in `data_utils.py` or a separate module, and provide a test script or notebook demonstrating the model works end-to-end.
-2. (Required) Add the model to the model list in the documentation (`doc.md` and `README.md`). If the model's configuration or usage is significantly different, add a dedicated section explaining how to use it.
-3. (Recommended) Provide example retrieval results (screenshots or saved outputs) showing the model's performance on representative queries (e.g., "glacier", "city with coastline", or specific coordinates).
+**Registration checklist:**
+1. Add the model class to `models/__init__.py`.
+2. Add an entry to `core/model_manager.py` in `_load_all_models()`.
+3. Add an entry to `generate_embeddings.py` in `MODEL_MAP`.
+4. Add a config block to `configs/config.yaml` with `ckpt_path`, `model_name`, `tokenizer_path` (if needed), and `embedding_path`.
+5. Update `README.md` and `doc.md` with the model description.
+
+**Weight hosting:** Upload your model weights to HuggingFace or ModelScope so the `DOWNLOAD_ENDPOINT` mechanism works for both China (`modelscope.cn`) and international users (`modelscope.ai` / `huggingface`).
 
 ---
 
-### Adding New Datasets
+### Adding a New Dataset
 
-We currently use **MajorTOM Core-S2L2A** (Sentinel-2 Level 2A) from ESA. Contributions that add or support new datasets are welcome.
+We use **MajorTOM Core-S2L2A** (Sentinel-2 Level 2A, ~23 TB) as the source imagery. To add a new source dataset or a new sampling strategy:
 
-- **Dataset requirements:**
-  - Global or regional coverage with georeferenced imagery.
-  - Clear licensing (open data preferred, e.g., Creative Commons or public domain).
-  - Accessible via HTTP or cloud storage (e.g., ModelScope Datasets).
-- **Implementation:**
-  - Add dataset loading logic in `data_utils.py`.
-  - Update the metadata index and parquet shard handling if applicable.
-  - Document the dataset source, resolution, and any preprocessing steps in `doc.md`.
+**Dataset requirements:**
+- Global or regional coverage with georeferenced imagery.
+- Clear licensing (open data preferred).
+- Accessible via HTTP or cloud storage (Parquet shards preferred).
 
-If you contribute a new dataset, please ensure it integrates with the existing pipeline and does not break current functionality.
+**Metadata requirements:** The metadata parquet **must** contain the following columns so that the app can fetch raw images on demand:
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `product_id` | string | Unique scene identifier |
+| `grid_cell` | string | MajorTOM hierarchical grid code |
+| `timestamp` | string | Acquisition time (e.g., `20221115T161819`) |
+| `centre_lat` | float | Center latitude (WGS84) |
+| `centre_lon` | float | Center longitude (WGS84) |
+| `parquet_url` | string | Full URL to the Parquet shard containing the raw image |
+| `parquet_row` | int64 | Global row index inside that shard |
+
+> **Tip:** If your source imagery is stored locally (e.g., `images_249k/part_00001.parquet`), you can keep relative `parquet_url` paths for local use, but the final embedding datasets uploaded to ModelScope/HuggingFace should use absolute URLs (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`).
+
+**Implementation:**
+- Add dataset loading logic in `data_utils.py` if the format differs from MajorTOM.
+- Update `doc.md` with source, resolution, and preprocessing steps.
+
+---
+
+### Embedding Generation Pipeline
+
+The `generate_embeddings.py` script turns raw MajorTOM Parquet shards into embedding GeoParquets.
+
+**How it works:**
+1. Reads `metadata.parquet` (must contain `parquet_url` and `parquet_row`).
+2. Reads image bands from `images/part_*.parquet` row groups.
+3. For each image, looks up metadata by `grid_cell` + `product_id`.
+4. Runs `MajorTOM_Embedder.forward()` (tiling) or `_embed_single_fragment()` (pre-cropped).
+5. Outputs a GeoParquet with one row per fragment, including `embedding`, `geometry`, and metadata.
+
+**To generate embeddings for a new model:**
+
+```bash
+python generate_embeddings.py \
+    --model_name <your_model> \
+    --meta_path /path/to/metadata_249k.parquet \
+    --parquet_input /path/to/images_249k/ \
+    --output_path /path/to/output/<MODEL>_crop_384x384.parquet \
+    --fragment_size 384
+```
+
+**Output schema requirements:** The GeoParquet must contain these columns to be compatible with the app:
+
+```
+unique_id, embedding, timestamp, product_id, grid_cell,
+grid_row_u, grid_col_r, geometry, centre_lat, centre_lon,
+utm_footprint, utm_crs, pixel_bbox, parquet_row, parquet_url
+```
+
+If you modify `MajorTOM_Embedder.py` or `generate_embeddings.py`, please run a small test (e.g., `--max_row_groups 1`) and verify the output schema with `pd.read_parquet(output).columns`.
+
+---
+
+### Enhancing the Web App
+
+The web app is built with **Gradio** and split into modular layers:
+
+| File | Responsibility |
+| :--- | :--- |
+| `app.py` | Gradio layout, event wiring, launch logic |
+| `ui/callbacks.py` | Map click handlers, reset buttons, initial plot setup |
+| `ui/utils.py` | UI helpers (e.g., formatting status messages) |
+| `core/model_manager.py` | Model lifecycle (load, cache, retrieve) |
+| `core/search_engine.py` | All search modes: `search_text`, `search_image`, `search_location`, `search_mixed` |
+| `core/filters.py` | Post-search time-range and geo-bounding-box filters |
+| `core/exporters.py` | ZIP export of results (thumbnail / RGB / multiband) |
+| `data_utils.py` | HTTP-Range download from Parquet shards, image normalization |
+| `visualize.py` | Plotly map traces, matplotlib top-K overview, gallery formatting |
+
+**Contribution ideas:**
+- **New query modalities:** bounding-box drawing on the map, time-series queries, multi-image queries.
+- **UI/UX:** Better layout, responsive design, clearer error messages.
+- **Visualization:** Side-by-side model comparison, temporal animations, score histograms.
+- **Export:** GeoJSON/KML export, CSV metadata download.
+
+If you modify `app.py`, test locally with `python app.py` before pushing.
 
 ---
 
 ### Improving Retrieval Performance
 
-Contributions that make similarity search faster or more accurate are highly valued.
+- **Similarity Search framework integration:** We plan to support FAISS/Milvus for approximate nearest-neighbor search. Implementing IVF or HNSW indexes for our embedding datasets is a high-priority item.
+- **Similarity metrics:** Experiment with cosine, Euclidean, or learned fusion strategies.
+- **Benchmarking:** Add scripts to benchmark retrieval speed and accuracy across models.
 
-- **FAISS integration:** We plan to support FAISS for faster approximate nearest neighbor search. Implementing FAISS indexing (IVF, HNSW, etc.) for our embedding datasets is a priority.
-- **Similarity metrics:** Experiment with or add new similarity metrics (e.g., cosine similarity, Euclidean distance, cross-modal fusion strategies).
-- **Caching and optimization:** Improve caching of embeddings, optimize batch processing, or reduce memory usage.
-- **Benchmarking:** Add scripts or notebooks to benchmark retrieval speed and accuracy across models and datasets.
-
-If you work on performance improvements, please include before/after benchmarks in your PR description.
-
----
-
-### Enhancing the Web App (Gradio)
-
-The interactive demo runs on Gradio (`app.py`). Contributions that improve the user experience are welcome.
-
-- **UI/UX improvements:** Better layout, clearer visualizations, more intuitive controls, or responsive design.
-- **New query modalities:** Support for new input types (e.g., bounding box drawing on the map, time-series queries, or multi-image queries).
-- **Visualization enhancements:** Add new ways to visualize results (e.g., side-by-side comparison, temporal animations, or interactive charts).
-- **Bug fixes:** Fix UI glitches, improve error messages, or handle edge cases gracefully.
-
-If you modify `app.py`, please test locally and ensure the app launches correctly with `python app.py`.
-
----
-
-### Visualization and Analysis Tools
-
-The `visualize.py` module handles result display and map rendering.
-
-- **Map features:** Add new basemap layers, heatmaps, clustering of results, or export options (e.g., GeoJSON, KML).
-- **Result analysis:** Tools to analyze retrieval results statistically (e.g., geographic distribution, score histograms, or diversity metrics).
-- **Export functionality:** Allow users to download top-K results with metadata (coordinates, scores, image URLs).
+Please include before/after benchmarks in your PR description.
 
 ---
 
 ### Documentation and Tutorials
 
-- **Tutorial improvements:** Fix errors, add examples, or clarify steps in `doc.md` and `doc_zh.md`.
-- **Code documentation:** Add docstrings, type hints, or inline comments to clarify complex logic.
-- **Translation:** Improve or add translations for Chinese and other language versions of the docs.
-- **Examples and use cases:** Document real-world use cases (e.g., "finding glacier regions", "mapping urban expansion") with screenshots or notebooks.
+- Document real-world use cases with screenshots or notebooks.
 
 ---
 
 ### Bug Fixes and Refactoring
 
-- **Bug fixes:** Small fixes, clearer error messages, and handling edge cases are valuable.
-- **Refactoring:** Code cleanup that keeps behavior the same is welcome. For large refactors, please open an issue first to align on approach.
-- **Dependency updates:** Update `requirements.txt` versions or add optional dependencies with clear justification.
+- Small fixes, clearer error messages, and edge-case handling are always welcome.
+- For large refactors, open an issue first to align on approach.
+- Update `requirements.txt` versions only with clear justification.
 
 ---
 
-### Other Contributions
-
-- **Deployment guides:** Instructions for deploying EarthEmbeddingExplorer on other platforms (e.g., HuggingFace Spaces, ModelScope, local GPU/CPU, Docker).
-- **Examples and workflows:** Tutorials or example notebooks (e.g., "analyze land cover change over time", "compare models on the same query").
-- **Any other useful things!**
-
----
-
-## Roadmap & Contribution Priorities
-
-We welcome contributions aligned with our roadmap:
-
-- [x] Support DINOv2 Embedding model and embedding datasets.
-- [x] Increase the geographical coverage (sample rate) to 1.2% of the Earth's land surface.
-- [ ] **Support FAISS for faster similarity search.** (High priority)
-- [ ] Add more embedding models (e.g., new remote sensing CLIP variants).
-- [ ] Improve UI/UX and add new visualization features.
-- [ ] Support larger datasets or full MajorTOM coverage.
-- [ ] What features do you want? Leave an issue [here](https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/feedback)!
-
-If you're interested in working on a roadmap item, please comment on the corresponding issue or open a new one.
-
----
 
 ## Do's and Don'ts
 
@@ -250,23 +320,39 @@ If you're interested in working on a roadmap item, please comment on the corresp
 - Write or update tests where applicable.
 - Update documentation for user-facing changes.
 - Use conventional commit messages and PR titles.
-- Be respectful and constructive (we follow a welcoming Code of Conduct).
-- Cite relevant papers or datasets in the docs when adding new models or datasets.
+- Be respectful and constructive.
+- Cite relevant papers or datasets when adding new models.
 
 ### ❌ DON'T
 
 - Don't open very large PRs without prior discussion.
-- Don't ignore CI or pre-commit failures.
+- Don't ignore Ruff failures.
 - Don't mix unrelated changes in one PR.
-- Don't break existing APIs or pipelines without a good reason and clear migration notes.
-- Don't add heavy or optional dependencies to the core install without discussing in an issue.
+- Don't break existing APIs or pipelines without migration notes.
+- Don't add heavy or optional dependencies to the core install without discussion.
 - Don't redistribute datasets or models without checking their licenses.
+
+---
+
+## Roadmap
+
+We welcome contributions aligned with our roadmap:
+
+- [x] Support DINOv2 embedding model and embedding datasets.
+- [x] Increase geographic coverage to ~1.2% of Earth's land surface (~249k samples).
+- [x] Add mixed search (text + image + location fusion).
+- [ ] **Support FAISS for faster similarity search.** (High priority)
+- [ ] Add more embedding models (e.g., new remote-sensing CLIP variants).
+- [ ] Improve UI/UX and add new visualization features.
+- [ ] Support larger datasets or full MajorTOM coverage.
+- [ ] What features do you want? Leave an issue!
 
 ---
 
 ## Getting Help
 
-- **Issues and features:** [ModelScope Issues](https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/feedback)
+- **GitHub Issues:** [https://github.com/VoyagerXvoyagerx/EarthEmbeddingExplorer/issues](https://github.com/VoyagerXvoyagerx/EarthEmbeddingExplorer/issues)
+- **ModelScope Feedback:** [ModelScope Studio Discussions](https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/feedback)
 
 ---
 
@@ -276,12 +362,12 @@ If you use EarthEmbeddingExplorer in your research, please cite:
 
 ```bibtex
 @inproceedings{
-zheng2026earthembeddingexplorer,
-title={EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images},
-author={Yijie Zheng and Weijie Wu and Bingyue Wu and Long Zhao and Guoqing Li and Mikolaj Czerkawski and Konstantin Klemmer},
-booktitle={4th ICLR Workshop on Machine Learning for Remote Sensing (Tutorial Track)},
-year={2026},
-url={https://openreview.net/forum?id=LSsEenJVqD}
+  zheng2026earthembeddingexplorer,
+  title={EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images},
+  author={Yijie Zheng and Weijie Wu and Bingyue Wu and Long Zhao and Guoqing Li and Mikolaj Czerkawski and Konstantin Klemmer},
+  booktitle={4th ICLR Workshop on Machine Learning for Remote Sensing (Tutorial Track)},
+  year={2026},
+  url={https://openreview.net/forum?id=LSsEenJVqD}
 }
 ```
 
