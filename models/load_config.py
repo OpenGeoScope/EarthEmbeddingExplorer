@@ -2,7 +2,8 @@ import os
 
 import yaml
 
-
+if os.getenv("DOWNLOAD_ENDPOINT", "") == "modelscope.ai":
+    os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
 def load_config(config_path=None):
     """Load configuration from config.yaml or fall back to legacy configs."""
     if config_path is None:
