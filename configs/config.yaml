@@ -1,16 +1,16 @@
 siglip:
-  ckpt_path: "ms_cn"
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   model_name: "ViT-SO400M-14-SigLIP-384"
-  tokenizer_path: "ms_cn"
+  tokenizer_path: "Download_From_$DOWNLOAD_ENPOINT"
   embedding_path: "ms://VoyagerX/Core-S2RGB-249k-SigLIP/SigLIP_crop_384x384.parquet"
 
 farslip:
-  ckpt_path: "ms_cn"
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   model_name: "ViT-B-16"
   embedding_path: "ms://VoyagerX/Core-S2RGB-249k-FarSLIP/FarSLIP_crop_384x384.parquet"
 satclip:
-  ckpt_path: "ms_cn"
-  embedding_path: "ms://VoyagerX/Core-S2RGB-249k-SatCLIP/SatCLIP_crop_384x384.parquet"
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  embedding_path: "ms://VoyagerX/Core-S2L2A-249k-SatCLIP/SatCLIP_crop_384x384.parquet"
 dinov2:
-  ckpt_path: "ms_cn"
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   embedding_path: "ms://VoyagerX/Core-S2RGB-249k-DINOv2/DINOv2_crop_384x384.parquet"
