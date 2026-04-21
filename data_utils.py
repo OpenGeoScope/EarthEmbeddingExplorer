@@ -105,8 +105,6 @@ def _prepare_row_dict(product_id, df_source, verbose=True):
             pass    # disable load from local file
         elif 'huggingface.co' in url:
             row_dict['parquet_url'] = url.replace('https://huggingface.co', 'https://modelscope.cn').replace('resolve/main', 'resolve/master')
-        elif 'hf-mirror.com' in url:
-            row_dict['parquet_url'] = url.replace('https://hf-mirror.com', 'https://modelscope.cn').replace('resolve/main', 'resolve/master')
     else:
         if verbose:
             print("❌ Error: 'parquet_url' missing in metadata.")
