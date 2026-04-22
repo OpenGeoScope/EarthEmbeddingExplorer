@@ -65,7 +65,7 @@ class FarSLIPModel:
 
     def load_model(self):
         """Load FarSLIP model, tokenizer, and preprocessing pipeline."""
-        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 
         if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
             print(f"Loading FarSLIP model from local path: {self.ckpt_path}")
