@@ -71,6 +71,7 @@ def _download_image_by_location(lat, lon, pid, model_name):
 
 # Gradio Blocks Interface
 with gr.Blocks(
+    theme=gr.themes.Default(primary_hue=gr.themes.colors.purple),
     title="EarthEmbeddingExplorer",
     css="""
 .filter-checkbox {
