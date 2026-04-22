@@ -80,12 +80,14 @@ def plot_global_map_static(df, lat_col='centre_lat', lon_col='centre_lon'):
     # Use a fixed size and DPI to make coordinate mapping easier
     # Width=800px, Height=400px -> Aspect Ratio 2:1 (matches 360:180)
     # Increased DPI for better quality: 8x300 = 2400px width
-    fig = Figure(figsize=(10, 5), dpi=300)
+    fig = Figure(figsize=(10, 5), dpi=350)
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
 
-    # Add land + coastline (Cartopy)
-    ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.2)
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.5, alpha=0.5)
+    # Add land + coastline (Cartopy) - Use 50m resolution to show small islands
+    land_50m = cfeature.NaturalEarthFeature('physical', 'land', '50m')
+    coastline_50m = cfeature.NaturalEarthFeature('physical', 'coastline', '50m')
+    ax.add_feature(land_50m, facecolor='lightgray', edgecolor='none', alpha=0.2)
+    ax.add_feature(coastline_50m, facecolor='none', linewidth=0.8, alpha=0.5)
 
     # Plot points - Use blue to match user request
     ax.scatter(
@@ -131,12 +133,14 @@ def plot_geographic_distribution(df, scores, threshold, lat_col='centre_lat', lo
     # The threshold was already applied in model.search() and apply_filters()
     df_filtered = df_vis
 
-    fig = Figure(figsize=(10, 5), dpi=300)
+    fig = Figure(figsize=(10, 5), dpi=350)
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
 
-    # Add land + coastline (Cartopy)
-    ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.2)
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.5, alpha=0.5)
+    # Add land + coastline (Cartopy) - Use 10m resolution to show small islands
+    land_10m = cfeature.NaturalEarthFeature('physical', 'land', '10m')
+    coastline_10m = cfeature.NaturalEarthFeature('physical', 'coastline', '10m')
+    ax.add_feature(land_10m, facecolor='lightgray', edgecolor='none', alpha=0.2)
+    ax.add_feature(coastline_10m, facecolor='none', linewidth=0.8, alpha=0.5)
 
     # 2. Plot Search Results with color map
     label_text = f'{len(df_filtered)} Results'
@@ -313,8 +317,10 @@ def plot_location_distribution(df_all, query_lat, query_lon, results, query_info
     # else:
     #     df_bg = df_all
 
-    ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.2)
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.5, alpha=0.5)
+    land_50m = cfeature.NaturalEarthFeature('physical', 'land', '50m', facecolor='lightgray', alpha=0.2)
+    coastline_50m = cfeature.NaturalEarthFeature('physical', 'coastline', '50m', linewidth=0.5, alpha=0.5)
+    ax.add_feature(land_50m)
+    ax.add_feature(coastline_50m)
     # ax.scatter(df_bg['centre_lon'], df_bg['centre_lat'], c='lightgray', s=1, alpha=0.3, label='All Samples')
 
     # 2. Query Location
