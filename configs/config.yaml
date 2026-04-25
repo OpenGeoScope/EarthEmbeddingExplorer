@@ -14,3 +14,8 @@ satclip:
 dinov2:
   ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   embedding_path: "ms://Major-TOM/Core-S2RGB-249k-DINOv2/DINOv2_crop_384x384.parquet"
+
+olmoearth:
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  model_size: "nano"  # nano | tiny | base | large
+  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-OLMoEarth/OLMoEarth_crop_384x384.parquet"
