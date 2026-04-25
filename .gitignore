@@ -19,3 +19,7 @@ comparison_imagery.md
 test_*.py
 kimi*
 restore_and_fix.py
+# Planning files (planning-with-files skill)
+task_plan.md
+progress.md
+findings.md
