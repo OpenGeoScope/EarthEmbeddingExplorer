@@ -30,15 +30,15 @@ def handle_map_click(evt: gr.SelectData, df_vis):
     try:
         x, y = evt.index[0], evt.index[1]
 
-        # Image dimensions (New)
-        img_width = 3000
-        img_height = 1500
+        # Image dimensions
+        img_width = 3500
+        img_height = 1750
 
         # Scaled Margins (Proportional to 4000x2000)
-        left_margin = 110 * 0.75
-        right_margin = 110 * 0.75
-        top_margin = 100 * 0.75
-        bottom_margin = 67 * 0.75
+        left_margin = 110 * 0.875
+        right_margin = 110 * 0.875
+        top_margin = 100 * 0.875
+        bottom_margin = 67 * 0.875
 
         plot_width = img_width - left_margin - right_margin
         plot_height = img_height - top_margin - bottom_margin

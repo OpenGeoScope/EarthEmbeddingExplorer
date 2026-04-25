@@ -64,15 +64,15 @@ class SatCLIPModel:
             print("Error: SatCLIP functionality is not available.")
             return
 
-        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn").lower()
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 
         if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
             print(f"Loading SatCLIP model from local path: {self.ckpt_path}")
-        elif endpoint in ("huggingface", "hf"):
+        elif endpoint in ("huggingface"):
             print("Loading SatCLIP model from HuggingFace...")
             from huggingface_hub import hf_hub_download
             self.ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
-        elif endpoint in ("modelscope.ai", "ai"):
+        elif endpoint in ("modelscope.ai"):
             print("Loading SatCLIP model from ModelScope (modelscope.ai)...")
             os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download

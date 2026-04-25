@@ -57,7 +57,7 @@ class DINOv2Model:
 
     def load_model(self):
         """Load DINOv2 model and processor from local path or remote repository."""
-        endpoint = os.getenv("DOWNLOAD_ENDPOINT").lower()
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 
         if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
             print(f"Loading DINOv2 model from local path: {self.ckpt_path}")

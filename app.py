@@ -71,6 +71,7 @@ def _download_image_by_location(lat, lon, pid, model_name):
 
 # Gradio Blocks Interface
 with gr.Blocks(
+    theme=gr.themes.Default(primary_hue=gr.themes.colors.purple),
     title="EarthEmbeddingExplorer",
     css="""
 .filter-checkbox {
@@ -115,6 +116,7 @@ div.form:has(.filter-checkbox) {
     <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.ai-xGPU-624aff"></a>
     <a href="https://modelscope.cn/collections/Major-TOM/Core-S2L2A-249k"><img src="https://img.shields.io/badge/👾 MS-Dataset-624aff"></a>
     <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
+    <a href="https://github.com/OpenGeoScope/EarthEmbeddingExplorer"> <img src="https://img.shields.io/badge/GitHub-Code-181717?logo=github"> </a>
     <a href="https://arxiv.org/abs/2603.29441"> <img src="https://img.shields.io/badge/arXiv-@ICLR26📖-B31B1B"> </a>
     <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/OpenReview-@ICLR26📖-007bff"> </a>
     </div>
