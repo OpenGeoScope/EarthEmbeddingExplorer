@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from MajorTOM.embedder.MajorTOM_Embedder import MajorTOM_Embedder
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
+from models.olmoearth_model import OlmoEarthModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
 from models.load_config import load_config
@@ -49,6 +50,7 @@ MODEL_MAP = {
     "siglip": SigLIPModel,
     "farslip": FarSLIPModel,
     "satclip": SatCLIPModel,
+    "olmoearth": OlmoEarthModel,
 }
 
 
@@ -269,7 +271,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 def main():
     parser = argparse.ArgumentParser(description="Generate MajorTOM embeddings")
     parser.add_argument("--model_name", type=str, required=True,
-                        choices=["dinov2", "siglip", "farslip", "satclip"],
+                        choices=["dinov2", "siglip", "farslip", "satclip", "olmoearth"],
                         help="Model to use for embedding generation")
     parser.add_argument("--meta_path", type=str, required=True,
                         help="Path to metadata.parquet")
