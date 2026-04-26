@@ -2,6 +2,7 @@
 
 import torch
 
+from models.clay_model import ClayModel
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.load_config import load_and_process_config
@@ -30,6 +31,7 @@ class ModelManager:
         self._load_siglip()
         self._load_satclip()
         self._load_farslip()
+        self._load_clay()
 
     def _load_dinov2(self):
         """Load DINOv2 model."""
@@ -88,6 +90,20 @@ class ModelManager:
                 self.models["FarSLIP"] = FarSLIPModel(device=self.device)
         except Exception as e:
             print(f"Failed to load FarSLIP: {e}")
+
+    def _load_clay(self):
+        """Load Clay model."""
+        try:
+            if self.config and "clay" in self.config:
+                self.models["Clay"] = ClayModel(
+                    ckpt_path=self.config["clay"].get("ckpt_path"),
+                    embedding_path=self.config["clay"].get("embedding_path"),
+                    device=self.device,
+                )
+            else:
+                self.models["Clay"] = ClayModel(device=self.device)
+        except Exception as e:
+            print(f"Failed to load Clay: {e}")
 
     def get_model(self, model_name):
         """Get a loaded model by name.

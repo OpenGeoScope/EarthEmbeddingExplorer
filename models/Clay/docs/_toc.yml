@@ -1,0 +1,70 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: index
+parts:
+- caption: Release notes
+  chapters:
+    - title: Model release notes
+      file: release-notes/specification
+    - title: Data sampling strategy
+      file: release-notes/data_sampling
+    - title: Software release notes v1.0
+      file: release-notes/changelog-v1.0
+- caption: Getting Started
+  chapters:
+    - title: Quick Start
+      file: getting-started/quickstart
+    - title: Installation
+      file: getting-started/installation
+    - title: Basic Use
+      file: getting-started/basic_use
+    - title: Migration Guide
+      file: getting-started/migration-guide
+- caption: Tutorials
+  chapters:
+    - title: Clay wall-to-wall example
+      file: tutorials/wall-to-wall
+    - title: Explore embeddings from Clay Encoder
+      file: tutorials/embeddings
+    - title: Clay MAE reconstruction
+      file: tutorials/reconstruction
+- caption: Finetune examples
+  chapters:
+    - title: Segmentation using Chesapeake
+      file: finetune/segment
+    - title: Classification using Eurosat
+      file: finetune/classify
+    - title: Regression using Biomasters
+      file: finetune/regression
+    - title: Finetuning on an embeddings database
+      file: finetune/finetune-on-embeddings
+- caption: About Clay
+  chapters:
+    - title: GitHub
+      url: https://github.com/Clay-foundation
+    - title: LinkedIn
+      url: https://www.linkedin.com/company/made-with-clay
+    - title: Website
+      url: https://madewithclay.org
+- caption: Older Versions
+  chapters:
+    - file: clay-v0/specification-v0
+      sections:
+      - title: Run over a region
+        file: clay-v0/run_region
+      - title: Generating embeddings
+        file: clay-v0/model_embeddings
+      - title: Finetuning
+        file: clay-v0/model_finetuning
+      - title: Embeddings for Contiguous US
+        file: clay-v0/worldcover-embeddings
+      - title: Interpolation example for v0
+        file: clay-v0/clay-v0-interpolation
+      - title: Creating datacubes
+        file: clay-v0/data_datacube
+      - title: Benchmark dataset labels
+        file: clay-v0/data_labels
+      - title: Software release notes v0.1
+        file: clay-v0/changelog-v0.1
