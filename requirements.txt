@@ -17,3 +17,4 @@ lightning
 torchgeo
 modelscope
 gradio==5.49.1
+olmoearth-pretrain-minimal

@@ -66,6 +66,8 @@ def get_model_kwargs(model_name, device):
             kwargs["model_name"] = model_cfg["model_name"]
         if "tokenizer_path" in model_cfg:
             kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
+        if "model_size" in model_cfg:
+            kwargs["model_size"] = model_cfg["model_size"]
     return kwargs
 
 

@@ -5,6 +5,7 @@ import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.nn.flexi_vit import PoolingType
 
 
 class OlmoEarthModel:
@@ -109,10 +110,44 @@ class OlmoEarthModel:
             self.image_embeddings = (
                 torch.from_numpy(image_embeddings_np).to(self.device).float()
             )
-            self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
+            # NOTE: Official tutorial does NOT L2-normalize MEAN-pooled embeddings.
+            # Keeping raw dot-product for search consistency with allenai/olmoearth_ml4rs_tutorial.
             print(f"OLMoEarth Data loaded: {len(self.df_embed)} records")
         except Exception as e:
             print(f"Error loading OLMoEarth embeddings: {e}")
+
+    def _read_multiband_from_tiff(self, tiff_path):
+        """Read a multi-band GeoTIFF file and return (C, H, W) torch tensor."""
+        import rasterio
+        with rasterio.open(tiff_path) as src:
+            data = src.read().astype(np.float32)  # (C, H, W)
+            if data.shape[0] != 12:
+                print(f"Warning: Expected 12 bands, got {data.shape[0]} in {tiff_path}")
+            if data.shape[0] < 12:
+                padded = np.zeros((12, data.shape[1], data.shape[2]), dtype=np.float32)
+                padded[:data.shape[0]] = data
+                data = padded
+            elif data.shape[0] > 12:
+                data = data[:12]
+        return torch.from_numpy(data).unsqueeze(0)  # (1, C, H, W)
+
+    def _read_multiband_from_dir(self, dir_path):
+        """Read single-band GeoTIFFs from directory (B01.tif, B02.tif, ...) and stack."""
+        import rasterio
+        bands = self.bands
+        img = []
+        for band in bands:
+            band_path = os.path.join(dir_path, f"{band}.tif")
+            if not os.path.exists(band_path):
+                band_path_alt = os.path.join(dir_path, f"{band.lower()}.tif")
+                if os.path.exists(band_path_alt):
+                    band_path = band_path_alt
+                else:
+                    raise FileNotFoundError(f"Band file not found: {band_path}")
+            with rasterio.open(band_path) as src:
+                img.append(src.read()[0].astype(np.float32))
+        data = np.stack(img, axis=0)  # (12, H, W)
+        return torch.from_numpy(data).unsqueeze(0)  # (1, C, H, W)
 
     def _prepare_input(self, tensor):
         """
@@ -177,7 +212,12 @@ class OlmoEarthModel:
         Encode an image into a feature embedding.
 
         Args:
-            image (PIL.Image, torch.Tensor, or np.ndarray): Input image.
+            image (str, Path, PIL.Image, torch.Tensor, or np.ndarray): Input image.
+                - str / Path: Path to a GeoTIFF file (single-band or multi-band).
+                    For multi-band GeoTIFF with 12 bands, bands are read in file order
+                    and assumed to be in MajorTOM order [B01..B12].
+                    For single-band files, a directory path can be provided containing
+                    files named B01.tif, B02.tif, etc.
                 - PIL.Image: RGB image; adapted to 12 bands (R->B04, G->B03, B->B02).
                 - torch.Tensor: Image tensor with shape [C, H, W] or [N, C, H, W].
                 - np.ndarray: Image array with shape [H, W, C] or [N, H, W, C].
@@ -192,6 +232,16 @@ class OlmoEarthModel:
             return None
 
         try:
+            if isinstance(image, (str, os.PathLike)):
+                image_path = str(image)
+                if os.path.isdir(image_path):
+                    # Directory of single-band GeoTIFFs
+                    img = self._read_multiband_from_dir(image_path)
+                else:
+                    # Single multi-band GeoTIFF
+                    img = self._read_multiband_from_tiff(image_path)
+                return self.encode_image(img)
+
             if isinstance(image, torch.Tensor):
                 normalized = self._prepare_input(image)
                 sample = self._create_sample(normalized)
@@ -199,9 +249,9 @@ class OlmoEarthModel:
                     output = self.model.encoder(
                         sample, patch_size=8, input_res=10, fast_pass=True
                     )
-                embedding = output["tokens_and_masks"].pool_unmasked_tokens()
-                # Normalize
-                embedding = F.normalize(embedding, dim=-1)
+                embedding = output["tokens_and_masks"].pool_unmasked_tokens(
+                    pooling_type=PoolingType.MEAN
+                )
                 return embedding
 
             elif isinstance(image, np.ndarray):
@@ -305,9 +355,14 @@ class OlmoEarthModel:
 
         try:
             query_features = query_features.float().to(self.device)
-            query_features = F.normalize(query_features, dim=-1)
+            # NOTE: Official tutorial uses raw dot-product for classification.
+            # For retrieval, we L2-normalize both embeddings and query to compute
+            # cosine similarity, eliminating geographic bias from embedding norm
+            # variations (e.g. polar regions have systematically higher norms).
+            image_embeddings_norm = F.normalize(self.image_embeddings, dim=-1)
+            query_features_norm = F.normalize(query_features, dim=-1)
 
-            similarity = (self.image_embeddings @ query_features.T).squeeze()
+            similarity = (image_embeddings_norm @ query_features_norm.T).squeeze()
             similarities = similarity.detach().cpu().numpy()
 
             if top_percent is not None:
