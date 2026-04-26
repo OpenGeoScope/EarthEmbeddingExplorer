@@ -37,6 +37,7 @@ from shapely.ops import transform as shapely_transform
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from MajorTOM.embedder.MajorTOM_Embedder import MajorTOM_Embedder
+from models.clay_model import ClayModel
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.satclip_model import SatCLIPModel
@@ -49,6 +50,7 @@ MODEL_MAP = {
     "siglip": SigLIPModel,
     "farslip": FarSLIPModel,
     "satclip": SatCLIPModel,
+    "clay": ClayModel,
 }
 
 
@@ -269,7 +271,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 def main():
     parser = argparse.ArgumentParser(description="Generate MajorTOM embeddings")
     parser.add_argument("--model_name", type=str, required=True,
-                        choices=["dinov2", "siglip", "farslip", "satclip"],
+                        choices=["dinov2", "siglip", "farslip", "satclip", "clay"],
                         help="Model to use for embedding generation")
     parser.add_argument("--meta_path", type=str, required=True,
                         help="Path to metadata.parquet")
