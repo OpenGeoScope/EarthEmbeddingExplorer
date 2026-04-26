@@ -14,7 +14,7 @@ def get_initial_plot(models):
     df_vis = None
     img = None
     # Iterate all models and use the first one with embedding data
-    for model_name, model in models.items():
+    for _model_name, model in models.items():
         if model.df_embed is not None:
             img, df_vis = plot_global_map_static(model.df_embed)
             break
@@ -183,7 +183,7 @@ def reset_to_global_map(models):
     img = None
     df_vis = None
     # Iterate all models and use the first one with embedding data
-    for model_name, model in models.items():
+    for _model_name, model in models.items():
         if model.df_embed is not None:
             img, df_vis = plot_global_map_static(model.df_embed)
             break
