@@ -1,12 +1,21 @@
 import math
 import os
+import sys
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
 from PIL import Image
+
+# Ensure vendored Clay source is on Python path so absolute imports inside
+# claymodel (e.g. `from claymodel.model import Encoder`) resolve correctly
+# in environments where `pip install ./models/Clay` has not been run.
+_CLAY_ROOT = Path(__file__).parent / "Clay"
+if str(_CLAY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CLAY_ROOT))
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
