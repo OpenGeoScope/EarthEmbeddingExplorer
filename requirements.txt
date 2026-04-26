@@ -17,3 +17,9 @@ lightning
 torchgeo
 modelscope
 gradio==5.49.1
+einops
+timm
+python-box
+scikit-image
+scikit-learn
+vit-pytorch
