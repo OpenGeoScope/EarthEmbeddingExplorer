@@ -92,11 +92,13 @@ The retrieval engine is powered by four complementary embedding models. Think of
 | **FarSLIP** [4] | image + text | Satellite image–text pairs (RS-specific) | Fine-grained remote-sensing concepts |
 | **SatCLIP** [5] | image + location | Satellite image–GPS coordinate pairs | Location-aware retrieval |
 | **DINOv2** [7] | image only | Natural images (self-supervised) | Pure visual similarity search |
+| **Clay** [9] | image only | Multi-sensor EO (MAE self-supervised) | Multi-spectral Earth observation features |
 
 - **SigLIP** improves upon CLIP with a sigmoid loss and works well for everyday vocabulary.
 - **FarSLIP** is fine-tuned on remote-sensing captions, making it better at concepts like *"deforestation"* or *"salt evaporation ponds"*.
 - **SatCLIP** jointly encodes images and their geographic coordinates, enabling queries like *"show me places near (lat, lon)"*.
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
+- **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. It captures rich geospatial features across 10 Sentinel-2 bands, making it ideal for pure visual similarity search in the remote-sensing domain.
 
 Models such as **CLIP** [2] learn to align images and text by training on massive pairs of (image, caption) data from the web. An *image encoder* compresses a photo into a vector; a *text encoder* does the same for a sentence. The key property is that semantically matching pairs end up close together in vector space, while unrelated pairs are far apart.
 
@@ -153,6 +155,7 @@ Each embedding dataset contains the vector representation of every sampled image
 | FarSLIP | Core-S2RGB-249k-FarSLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-FarSLIP) |
 | DINOv2 | Core-S2RGB-249k-DINOv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-DINOv2) |
 | SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SatCLIP) |
+| Clay | Core-S2L2A-249k-Clay-v1.5 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-Clay-v1.5) |
 
 > **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
 
@@ -254,6 +257,7 @@ We thank the following open-source projects and datasets that made EarthEmbeddin
 - [FarSLIP](https://github.com/NJU-LHRS/FarSLIP) — Fine-grained remote-sensing language-image pretraining
 - [SatCLIP](https://github.com/microsoft/satclip) — Satellite location-image pretraining
 - [DINOv2](https://huggingface.co/facebook/dinov2-large) — Self-supervised vision transformer
+- [Clay](https://github.com/Clay-foundation/model) — Multi-spectral Earth observation foundation model
 
 **Datasets:**
 - [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) — Expandable datasets for Earth observation by ESA
@@ -296,3 +300,5 @@ If you use EarthEmbeddingExplorer in your research, please cite:
 [7] Oquab, M., et al. (2023). DINOv2: Learning Robust Visual Features without Supervision. *arXiv preprint arXiv:2304.07193*.
 
 [8] Zheng, Y., et al. (2026). EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images. *4th ICLR Workshop on ML4RS (Tutorial Track)*.
+
+[9] Development Seed. (2024). Clay: An Open Source AI Model and Interface for Earth. *https://github.com/Clay-foundation/model*.

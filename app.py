@@ -147,7 +147,7 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2"], value="FarSLIP", label="Model"
+                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay"], value="FarSLIP", label="Model"
                     )
 
                     gr.Markdown("### Option 1: Upload or Select Image")
@@ -302,7 +302,7 @@ div.form:has(.filter-checkbox) {
 
     current_fig = gr.State()
     map_data_state = gr.State()
-    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for SatCLIP encoding
+    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral model encoding
     image_source = gr.State(value="upload")  # Tracks whether image came from "upload" or "download"
 
     # Clear multiband state only when user uploads a new image manually,
