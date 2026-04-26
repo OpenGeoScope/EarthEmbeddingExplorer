@@ -147,7 +147,7 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2"], value="FarSLIP", label="Model"
+                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "OLMoEarth"], value="FarSLIP", label="Model"
                     )
 
                     gr.Markdown("### Option 1: Upload or Select Image")
@@ -212,7 +212,7 @@ div.form:has(.filter-checkbox) {
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=["FarSLIP", "SigLIP"], value="FarSLIP", label="Model for Text/Image"
+                        choices=["FarSLIP", "SigLIP", "OLMoEarth"], value="FarSLIP", label="Model for Text/Image"
                     )
 
                     gr.Markdown("#### 📝 Text Query")

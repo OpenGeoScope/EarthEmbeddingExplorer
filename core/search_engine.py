@@ -92,7 +92,7 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         )
         t0 = time.time()
         top_indices = top_indices[:10]
-        results = _fetch_top_k_images(top_indices, probs, df_embed, query_text=query)
+        results = _fetch_top_k_images(top_indices, probs, df_embed, model_manager=model_manager, query_text=query)
         timings["Download"] = time.time() - t0
 
         # 4. Visualize - keep geo_dist_map visible
@@ -227,7 +227,9 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         )
         t0 = time.time()
         top_indices = top_indices[:6]
-        results = _fetch_top_k_images(top_indices, probs, df_embed, query_text="Image Query")
+        results = _fetch_top_k_images(
+            top_indices, probs, df_embed, model_manager=model_manager, query_text="Image Query"
+        )
         timings["Download"] = time.time() - t0
 
         # 4. Visualize - keep geo_dist_map visible
@@ -353,7 +355,9 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
         )
         t0 = time.time()
         top_6_indices = top_indices[:6]
-        results = _fetch_top_k_images(top_6_indices, probs, df_embed, query_text=f"Loc: {lat},{lon}")
+        results = _fetch_top_k_images(
+            top_6_indices, probs, df_embed, model_manager=model_manager, query_text=f"Loc: {lat},{lon}"
+        )
 
         # Get query tile
         query_tile = None
@@ -660,7 +664,9 @@ def search_mixed(
         )
         t0 = time.time()
         top_indices = top_indices[:5]
-        results = _fetch_top_k_images(top_indices, final_scores, df_ref, query_text=query_info)
+        results = _fetch_top_k_images(
+            top_indices, final_scores, df_ref, model_manager=model_manager, query_text=query_info
+        )
         timings["Download"] = time.time() - t0
 
         # --- Visualize ---
@@ -729,16 +735,30 @@ def search_mixed(
 # Helper functions (moved from app.py)
 
 
-def _fetch_top_k_images(top_indices, probs, df_embed, query_text=None):
+def _fetch_top_k_images(top_indices, probs, df_embed, model_manager=None, query_text=None):
     """Download and process top-K images for display."""
     results = []
+
+    # Fallback df_source for downloading images: if current model's df_embed
+    # lacks parquet_url (e.g. OLMoEarth self-generated embeddings), use any
+    # other model's df_embed that has the required download metadata.
+    df_source = df_embed
+    if df_source is None or "parquet_url" not in df_source.columns:
+        if model_manager is not None:
+            for m in model_manager.models.values():
+                if m.df_embed is not None and "parquet_url" in m.df_embed.columns:
+                    df_source = m.df_embed
+                    break
+
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_to_idx = {}
         for _i, idx in enumerate(top_indices):
             row = df_embed.iloc[idx]
             pid = row["product_id"]
 
-            future = executor.submit(download_and_process_image, pid, df_source=df_embed, verbose=False, mode="thumbnail")
+            future = executor.submit(
+                download_and_process_image, pid, df_source=df_source, verbose=False, mode="thumbnail"
+            )
             future_to_idx[future] = idx
 
         for future in as_completed(future_to_idx):
@@ -826,4 +846,3 @@ def _format_results_to_text(results):
         lines.append("")
 
     return "\n".join(lines)
-

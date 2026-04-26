@@ -19,3 +19,13 @@ comparison_imagery.md
 test_*.py
 kimi*
 restore_and_fix.py
+# Planning files (planning-with-files skill)
+task_plan.md
+progress.md
+findings.md
+
+# Generated embeddings and artifacts
+embeddings_*/
+*.pkl
+*.npy
+olmoearth_*.png

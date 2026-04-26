@@ -13,9 +13,11 @@ def get_initial_plot(models):
 
     df_vis = None
     img = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
+    # Iterate all models and use the first one with embedding data
+    for _model_name, model in models.items():
+        if model.df_embed is not None:
+            img, df_vis = plot_global_map_static(model.df_embed)
+            break
     else:
         print("No embedding data available for initial plot.")
         img, df_vis = None, None
@@ -105,6 +107,17 @@ def handle_map_click(evt: gr.SelectData, df_vis):
     return lat, lon, pid, f"Selected Point: ({lat:.4f}, {lon:.4f})"
 
 
+def _get_df_source(models, preferred_model_name):
+    """Return the first available df_embed from models, preferring the named model."""
+    preferred = models.get(preferred_model_name)
+    if preferred is not None and preferred.df_embed is not None:
+        return preferred.df_embed
+    for m in models.values():
+        if m.df_embed is not None:
+            return m.df_embed
+    return None
+
+
 def download_image_by_location(lat, lon, pid, model_name, models):
     """Download and return the image at the specified location.
 
@@ -122,6 +135,11 @@ def download_image_by_location(lat, lon, pid, model_name, models):
     if model is None:
         return None, f"Model {model_name} not loaded.", None
 
+    # Use any available df_embed for metadata lookup (product_id -> parquet_url)
+    df_source = _get_df_source(models, model_name)
+    if df_source is None:
+        return None, "No embedding data available in any model. Cannot download image.", None
+
     try:
         # Convert to float to ensure proper formatting
         lat = float(lat)
@@ -129,23 +147,22 @@ def download_image_by_location(lat, lon, pid, model_name, models):
 
         # Find Product ID if not provided
         if not pid:
-            df = model.df_embed
-            lats = pd.to_numeric(df["centre_lat"], errors="coerce")
-            lons = pd.to_numeric(df["centre_lon"], errors="coerce")
+            lats = pd.to_numeric(df_source["centre_lat"], errors="coerce")
+            lons = pd.to_numeric(df_source["centre_lon"], errors="coerce")
             dists = (lats - lat) ** 2 + (lons - lon) ** 2
             nearest_idx = dists.idxmin()
-            pid = df.loc[nearest_idx, "product_id"]
+            pid = df_source.loc[nearest_idx, "product_id"]
 
         # For SatCLIP: download multiband for encoding; thumbnail for display
         multiband_array = None
         if model_name == "SatCLIP":
-            result = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="multiband")
+            result = download_and_process_image(pid, df_source=df_source, verbose=True, mode="multiband")
             img_384, _, multiband_array = result
             if img_384 is None:
                 return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None
             return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for SatCLIP]", multiband_array
         else:
-            img_384, _ = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="thumbnail")
+            img_384, _ = download_and_process_image(pid, df_source=df_source, verbose=True, mode="thumbnail")
             if img_384 is None:
                 return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None
             return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f})", None
@@ -165,9 +182,11 @@ def reset_to_global_map(models):
 
     img = None
     df_vis = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
+    # Iterate all models and use the first one with embedding data
+    for _model_name, model in models.items():
+        if model.df_embed is not None:
+            img, df_vis = plot_global_map_static(model.df_embed)
+            break
     else:
         print("No embedding data available for initial plot.")
         img, df_vis = None, None
