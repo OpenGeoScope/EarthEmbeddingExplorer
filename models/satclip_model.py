@@ -52,6 +52,7 @@ class SatCLIPModel:
             'B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07',
             'B08', 'B8A', 'B09', 'B11', 'B12'
         ]
+        self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.size = (224, 224)
 
         self.load_model()

@@ -17,5 +17,6 @@ auto_upload.sh
 *.sh
 comparison_imagery.md
 test_*.py
+!tests/test_*.py
 kimi*
 restore_and_fix.py
