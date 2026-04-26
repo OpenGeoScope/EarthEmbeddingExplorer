@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image as PILImage
 
-from data_utils import download_and_process_image, get_placeholder_image
+from data_utils import download_and_process_image, get_placeholder_image, reorder_multiband
 from visualize import format_results_for_gallery, plot_geographic_distribution, plot_top5_overview
 
 from .filters import apply_filters
@@ -151,22 +151,29 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         timings = {}
 
         # 1. Encode Image
-        # For SatCLIP: require multiband data (12-band numpy array)
+        # For multi-spectral models: require multiband data
         yield None, None, "Encoding image...", None, None, None, None
         t0 = time.time()
-        if model_name == "SatCLIP":
+        # Determine if the model needs multi-spectral input
+        needs_multiband = getattr(model, 'requires_multiband', False)
+
+        if needs_multiband:
             if multiband_data is not None:
-                print(f"SatCLIP: encoding with multiband data {multiband_data.shape}")
+                print(f"{model_name}: encoding with multiband data {multiband_data.shape}")
+                # Reorder bands from the generic 12-band MajorTOM format to what
+                # this model expects (no-op if model.bands == MULTIBAND_COLUMNS).
+                multiband_data = reorder_multiband(multiband_data, model.bands)
+                print(f"{model_name}: reordered to bands {model.bands} -> shape {multiband_data.shape}")
                 image_features = model.encode_image(multiband_data)
             else:
                 yield (
                     None,
                     None,
                     (
-                        "⚠️ SatCLIP requires multi-spectral Sentinel-2 input (12/13 bands).\n\n"
-                        "RGB images are NOT compatible with SatCLIP image retrieval.\n"
+                        f"⚠️ {model_name} requires multi-spectral Sentinel-2 input.\n\n"
+                        "RGB images are NOT compatible with this model's image retrieval.\n"
                         "Please use 'Download Image by Geolocation' to obtain a multi-band image first,\n"
-                        "or switch to DINOv2 / SigLIP / FarSLIP for RGB image retrieval."
+                        "or switch to an RGB-capable model for image retrieval."
                     ),
                     None,
                     None,

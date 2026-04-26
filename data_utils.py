@@ -175,6 +175,45 @@ def _thumbnail_to_pil(thumb_img, verbose=True):
 MULTIBAND_COLUMNS = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']
 
 
+def reorder_multiband(multiband_array, target_bands, source_bands=None):
+    """
+    Reorder a multiband array from source band order to target band order.
+
+    This is the single source of truth for mapping between the 12-band
+    MajorTOM format and any model-specific band subset/order.
+
+    Args:
+        multiband_array (np.ndarray): Array of shape [..., C] where C matches
+            len(source_bands).  Typically [H, W, 12] from download_and_process_image.
+        target_bands (list[str]): Band names the model expects, e.g.
+            ['B02','B03',...] for Clay or ['B01',...,'B12'] for SatCLIP.
+        source_bands (list[str] | None): Band names present in multiband_array.
+            Defaults to MULTIBAND_COLUMNS.
+
+    Returns:
+        np.ndarray: Array reordered to target_bands, shape [..., len(target_bands)].
+
+    Raises:
+        ValueError: If a band in target_bands is not found in source_bands.
+    """
+    if source_bands is None:
+        source_bands = MULTIBAND_COLUMNS
+
+    # Fast path: no reordering needed
+    if len(target_bands) == len(source_bands) and list(target_bands) == list(source_bands):
+        return multiband_array
+
+    band_map = {name: i for i, name in enumerate(source_bands)}
+    missing = [b for b in target_bands if b not in band_map]
+    if missing:
+        raise ValueError(
+            f"Target bands not found in source: {missing}. "
+            f"Source has {source_bands}, target asked for {target_bands}."
+        )
+    indices = [band_map[b] for b in target_bands]
+    return multiband_array[..., indices]
+
+
 def download_and_process_image(product_id, df_source=None, verbose=True, mode="thumbnail", normalize=True):
     """
     Download and process a MajorTOM image.

@@ -136,14 +136,14 @@ def download_image_by_location(lat, lon, pid, model_name, models):
             nearest_idx = dists.idxmin()
             pid = df.loc[nearest_idx, "product_id"]
 
-        # For SatCLIP: download multiband for encoding; thumbnail for display
-        multiband_array = None
-        if model_name == "SatCLIP":
+        # For multi-spectral models: download multiband for encoding; thumbnail for display
+        needs_multiband = getattr(model, 'requires_multiband', False)
+        if needs_multiband:
             result = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="multiband")
             img_384, _, multiband_array = result
             if img_384 is None:
                 return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None
-            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for SatCLIP]", multiband_array
+            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}]", multiband_array
         else:
             img_384, _ = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="thumbnail")
             if img_384 is None:
