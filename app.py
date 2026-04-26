@@ -147,7 +147,13 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay"], value="FarSLIP", label="Model"
+                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay"], value="Clay", label="Model"
+                    )
+
+                    gr.Markdown(
+                        "> **Note:** For multi-spectral models (SatCLIP / Clay), please select a geolocation on the map "
+                        "or enter coordinates below, then click **'Download Image by Geolocation'** to fetch the Sentinel-2 "
+                        "multi-band image before running the search. RGB uploads are not compatible with these models."
                     )
 
                     gr.Markdown("### Option 1: Upload or Select Image")
@@ -302,7 +308,7 @@ div.form:has(.filter-checkbox) {
 
     current_fig = gr.State()
     map_data_state = gr.State()
-    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral model encoding
+    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for SatCLIP encoding
     image_source = gr.State(value="upload")  # Tracks whether image came from "upload" or "download"
 
     # Clear multiband state only when user uploads a new image manually,
