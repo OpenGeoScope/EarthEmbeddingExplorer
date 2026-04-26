@@ -10,7 +10,7 @@ from PIL import Image
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
-    from claymodel.finetune.embedder.factory import Embedder
+    from .Clay.claymodel.finetune.embedder.factory import Embedder
 
 
 class ClayModel:
