@@ -18,7 +18,7 @@ Before you start, here is a quick map of the codebase:
 EarthEmbeddingExplorer/
 ├── app.py                      # Gradio web app entry point
 ├── core/
-│   ├── model_manager.py        # Loads all 4 models (SigLIP, FarSLIP, SatCLIP, DINOv2)
+│   ├── model_manager.py        # Loads all 5 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay)
 │   ├── search_engine.py        # Text / image / location / mixed search logic
 │   ├── filters.py              # Post-search time & geo filters
 │   └── exporters.py            # Download results as ZIP
@@ -28,8 +28,9 @@ EarthEmbeddingExplorer/
 ├── models/
 │   ├── siglip_model.py         # SigLIP wrapper
 │   ├── farslip_model.py        # FarSLIP wrapper
-│   ├── satclip_model.py        # SatCLIP wrapper
+│   ├── satclip_model.py        # SatCLIP wrapper (multi-spectral)
 │   ├── dinov2_model.py         # DINOv2 wrapper
+│   ├── clay_model.py           # Clay v1.5 wrapper (multi-spectral)
 │   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
 ├── data_utils.py               # Parquet HTTP-Range download, image processing
 ├── visualize.py                # Map plotting, gallery formatting
@@ -44,6 +45,7 @@ EarthEmbeddingExplorer/
 
 **Key design principles:**
 - **Unified model interface:** Every model in `models/` exposes `encode_text()`, `encode_image()`, `encode_location()`, and `search()`.
+- **Model-agnostic multi-spectral handling:** Models declare their expected Sentinel-2 bands via `self.bands` and `self.requires_multiband`. The search engine and UI callbacks use these attributes to automatically extract and reorder bands from the generic 12-band MajorTOM format via `reorder_multiband()` in `data_utils.py`—no hard-coded model names.
 - **Local-first, remote-fallback:** `models/load_config.py` resolves `hf://` and `ms://` URLs automatically.
 - **On-demand imagery:** The app never downloads the full dataset; it fetches individual rows via HTTP Range requests using `parquet_url` + `parquet_row` stored in each embedding.
 
@@ -182,16 +184,32 @@ We welcome new vision-language or vision-only models that improve retrieval qual
 | `__init__(ckpt_path, embedding_path, device)` | Load config, set paths, lazy-load weights in `load_model()` |
 | `load_model()` | Download weights if needed (respect `DOWNLOAD_ENDPOINT`), initialize inference model |
 | `encode_text(text)` | Return a text embedding `torch.Tensor` (or `None` if unsupported) |
-| `encode_image(PIL.Image)` | Return an image embedding `torch.Tensor` (or `None` if unsupported) |
+| `encode_image(image)` | Return an image embedding `torch.Tensor`. Accepts `PIL.Image`, `torch.Tensor`, or `np.ndarray`. |
 | `encode_location(lat, lon)` | Return a location embedding `torch.Tensor` (or `None` if unsupported) |
 | `search(query_embedding, top_percent)` | Compute cosine similarity against `self.image_embeddings`, return `(probs, filtered_indices, top_indices)` |
+
+**Multi-spectral models** (e.g., SatCLIP, Clay) must additionally declare:
+
+| Attribute | Purpose |
+| :--- | :--- |
+| `self.requires_multiband = True` | Signals the search engine that this model needs 12-band Sentinel-2 input instead of RGB. |
+| `self.bands = ['B02', 'B03', ...]` | Lists the band names (in order) the model expects. The generic `data_utils.reorder_multiband()` will automatically extract these from the 12-band MajorTOM format. |
+| `self.size = (H, W)` | Spatial resolution expected by the model's encoder (used for auto-resize if needed). |
+
+**Vendored third-party code:** If your model wraps a forked or vendored repository (like `models/Clay/` or `models/FarSLIP/`), place it under `models/<Vendor>/` and ensure:
+- The directory contains a valid `__init__.py` so Python treats it as a package.
+- Your wrapper injects the vendor root into `sys.path` before importing absolute paths inside the vendored code (see `models/clay_model.py` for the pattern).
+- Dependencies are added to `requirements.txt`.
 
 **Registration checklist:**
 1. Add the model class to `models/__init__.py`.
 2. Add an entry to `core/model_manager.py` in `_load_all_models()`.
 3. Add an entry to `generate_embeddings.py` in `MODEL_MAP`.
 4. Add a config block to `configs/config.yaml` with `ckpt_path`, `model_name`, `tokenizer_path` (if needed), and `embedding_path`.
-5. Update `README.md` and `doc.md` with the model description.
+5. Add the model name to the Image Search dropdown in `app.py`.
+6. Update `requirements.txt` if new dependencies are needed.
+7. Update `README.md` and `doc.md` with the model description.
+8. Add a test case in `tests/test_image_search.py` (or create a new test file).
 
 **Weight hosting:** Upload your model weights to HuggingFace or ModelScope so the `DOWNLOAD_ENDPOINT` mechanism works for both China (`modelscope.cn`) and international users (`modelscope.ai` / `huggingface`).
 
@@ -222,6 +240,7 @@ We use **MajorTOM Core-S2L2A** (Sentinel-2 Level 2A, ~23 TB) as the source image
 
 **Implementation:**
 - Add dataset loading logic in `data_utils.py` if the format differs from MajorTOM.
+- If your dataset provides a different band order than MajorTOM's `['B01', 'B02', ..., 'B12']`, update `data_utils.MULTIBAND_COLUMNS` and `reorder_multiband()` so downstream models can still auto-map bands via `model.bands`.
 - Update `doc.md` with source, resolution, and preprocessing steps.
 
 ---
@@ -286,6 +305,32 @@ If you modify `app.py`, test locally with `python app.py` before pushing.
 
 ---
 
+### Testing
+
+We use `pytest` for testing. Tests live in `tests/` and are tracked in git.
+
+**Run all image-search tests:**
+```bash
+python tests/test_image_search.py --model all
+```
+
+**Run a single model:**
+```bash
+python tests/test_image_search.py --model Clay --lat -3 --lon -63
+```
+
+**What the test does:**
+1. Loads the model and its embeddings.
+2. Finds the nearest `product_id` to the query lat/lon.
+3. Downloads the image (multiband for multi-spectral models, thumbnail for RGB models).
+4. Reorders bands via `reorder_multiband()` if needed.
+5. Encodes the image and runs a top-5 search.
+6. Asserts the embedding is non-empty and results are sorted.
+
+When adding a new model, please add it to `tests/test_image_search.py` (or create a new test file) and verify the full pipeline end-to-end before opening a PR.
+
+---
+
 ### Improving Retrieval Performance
 
 - **Similarity Search framework integration:** We plan to support FAISS/Milvus for approximate nearest-neighbor search. Implementing IVF or HNSW indexes for our embedding datasets is a high-priority item.
@@ -341,8 +386,10 @@ We welcome contributions aligned with our roadmap:
 - [x] Support DINOv2 embedding model and embedding datasets.
 - [x] Increase geographic coverage to ~1.2% of Earth's land surface (~249k samples).
 - [x] Add mixed search (text + image + location fusion).
+- [x] Support Clay v1.5 multi-spectral embedding model.
+- [x] Refactor multi-spectral handling to be model-agnostic (`requires_multiband` + `reorder_multiband`).
 - [ ] **Support FAISS for faster similarity search.** (High priority)
-- [ ] Add more embedding models (e.g., new remote-sensing CLIP variants).
+- [ ] Add more embedding models (e.g., new remote-sensing CLIP variants, Prithvi, DOFA).
 - [ ] Improve UI/UX and add new visualization features.
 - [ ] Support larger datasets or full MajorTOM coverage.
 - [ ] What features do you want? Leave an issue!
