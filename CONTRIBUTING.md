@@ -18,7 +18,7 @@ Before you start, here is a quick map of the codebase:
 EarthEmbeddingExplorer/
 ├── app.py                      # Gradio web app entry point
 ├── core/
-│   ├── model_manager.py        # Loads all 4 models (SigLIP, FarSLIP, SatCLIP, DINOv2)
+│   ├── model_manager.py        # Loads all 5 models (SigLIP, FarSLIP, SatCLIP, DINOv2, OLMoEarth)
 │   ├── search_engine.py        # Text / image / location / mixed search logic
 │   ├── filters.py              # Post-search time & geo filters
 │   └── exporters.py            # Download results as ZIP
@@ -30,6 +30,7 @@ EarthEmbeddingExplorer/
 │   ├── farslip_model.py        # FarSLIP wrapper
 │   ├── satclip_model.py        # SatCLIP wrapper
 │   ├── dinov2_model.py         # DINOv2 wrapper
+│   ├── olmoearth_model.py      # OLMoEarth wrapper
 │   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
 ├── data_utils.py               # Parquet HTTP-Range download, image processing
 ├── visualize.py                # Map plotting, gallery formatting
