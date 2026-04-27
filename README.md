@@ -1,3 +1,29 @@
+---
+domain:
+- multi-modal
+tags:
+- remote-sensing
+- satellite-imagery
+- cross-modal-retrieval
+- embedding
+- vision-language
+datasets:
+  evaluation:
+  - Major-TOM/Core-S2L2A-249k
+  test:
+  - Major-TOM/Core-S2L2A-249k
+  train:
+  - Major-TOM/Core-S2L2A-249k
+models:
+- VoyagerX/ViT-SO400M-14-SigLIP-384
+- VoyagerX/SatCLIP-ViT16-L40
+- VoyagerX/dinov2-large
+- VoyagerX/FarSLIP
+deployspec:
+  entry_file: app.py
+license: MIT
+---
+
 # EarthEmbeddingExplorer
 
 <div align="center">
