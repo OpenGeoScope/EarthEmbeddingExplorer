@@ -57,6 +57,7 @@ class OlmoEarthModel:
 
         # Sentinel-2 L2A bands (MajorTOM order)
         self.bands = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B11", "B12"]
+        self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.size = (128, 128)
 
         self.load_model()
@@ -272,15 +273,16 @@ class OlmoEarthModel:
                 image = image.resize(self.size)
                 img_np = np.array(image).astype(np.float32)  # (H, W, 3)
 
-                # Construct 12 channels
-                # OlmoEarth S2 bands: B01, B02(B), B03(G), B04(R), B05, B06, B07, B08, B8A, B09, B10, B11, B12
-                # For RGB input, we only have R, G, B which map to B04, B03, B02
+                # Construct 12 channels in MajorTOM order.
+                # _prepare_input will reorder to OlmoEarth format.
+                # MajorTOM: [B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12]
+                # RGB maps to B04(R), B03(G), B02(B)
                 input_tensor = np.zeros(
                     (12, self.size[0], self.size[1]), dtype=np.float32
                 )
-                input_tensor[2] = img_np[:, :, 1]  # Green -> B03
-                input_tensor[1] = img_np[:, :, 2]  # Blue -> B02
-                input_tensor[3] = img_np[:, :, 0]  # Red -> B04
+                input_tensor[1] = img_np[:, :, 2]  # Blue -> B02 (MajorTOM index 1)
+                input_tensor[2] = img_np[:, :, 1]  # Green -> B03 (MajorTOM index 2)
+                input_tensor[3] = img_np[:, :, 0]  # Red -> B04 (MajorTOM index 3)
 
                 input_tensor = torch.from_numpy(input_tensor).unsqueeze(0)
                 return self.encode_image(input_tensor)
