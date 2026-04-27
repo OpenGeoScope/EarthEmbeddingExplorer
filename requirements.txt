@@ -1,3 +1,5 @@
+numpy>=1.23.4,<2.0.0
+pydantic>=2.10,<2.12
 huggingface-hub==0.34.1
 transformers
 open_clip_torch
@@ -23,3 +25,4 @@ python-box
 scikit-image
 scikit-learn
 vit-pytorch
+olmoearth-pretrain-minimal
