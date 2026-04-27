@@ -18,7 +18,7 @@ Before you start, here is a quick map of the codebase:
 EarthEmbeddingExplorer/
 ├── app.py                      # Gradio web app entry point
 ├── core/
-│   ├── model_manager.py        # Loads all 5 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay)
+│   ├── model_manager.py        # Loads all 6 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay, OlmoEarth)
 │   ├── search_engine.py        # Text / image / location / mixed search logic
 │   ├── filters.py              # Post-search time & geo filters
 │   └── exporters.py            # Download results as ZIP
@@ -31,6 +31,7 @@ EarthEmbeddingExplorer/
 │   ├── satclip_model.py        # SatCLIP wrapper (multi-spectral)
 │   ├── dinov2_model.py         # DINOv2 wrapper
 │   ├── clay_model.py           # Clay v1.5 wrapper (multi-spectral)
+│   ├── olmoearth_model.py      # OlmoEarth wrapper (multi-spectral)
 │   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
 ├── data_utils.py               # Parquet HTTP-Range download, image processing
 ├── visualize.py                # Map plotting, gallery formatting
@@ -138,7 +139,8 @@ ruff format .
 
 If you want to deploy your fork to ModelScope Studio for live testing:
 
-### 1. Duplicate the modelscope studio
+
+### 1. Duplicate a new studio (first time)
 
 1. **(Optional)** Apply to join [xGPU-Explorers](https://modelscope.cn/organization/xGPU-Explorers) for free GPU access.
 2. Click **Duplicate** on the [project page](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/).
@@ -147,7 +149,9 @@ If you want to deploy your fork to ModelScope Studio for live testing:
    - `modelscope.ai` — international users
 4. Publish your studio.
 
-### 2. Push git push the code to modelscope studio
+---
+
+### 2. Push code to ModelScope Studio
 
 1. Fork the GitHub repo and push your branch:
    ```bash
@@ -157,17 +161,28 @@ If you want to deploy your fork to ModelScope Studio for live testing:
 
 2. In ModelScope Studio, click **Download Studio** to get the Git URL with your access token.
 
-![download](images/download_studio.png)
+   ![download](images/download_studio.png)
 
-3. Add ModelScope as an upstream remote:
+3. Add ModelScope as an upstream remote. **Choose the correct domain for your account:**
+
    ```bash
-   git remote add modelscope https://oauth2:YOUR_TOKEN@www.modelscope.ai/studios/.../EarthEmbeddingExplorer.git
+   # For mainland China users (modelscope.cn)
+   git remote add modelscope https://oauth2:YOUR_TOKEN@modelscope.cn/studios/YOUR_USERNAME/EarthEmbeddingExplorer.git
+
+   # For international users (modelscope.ai)
+   git remote add modelscope https://oauth2:YOUR_TOKEN@www.modelscope.ai/studios/YOUR_USERNAME/EarthEmbeddingExplorer.git
+   ```
+
+4. Push your branch to the studio's `master` branch:
+
+   ```bash
+   # Normal push (if histories are compatible)
    git push modelscope your-branch:master
    ```
 
-4. Go to settings and restart or deep reboot the studio.
+5. Go to settings and restart or deep reboot (if new requirements should be installed) the studio.
 
-5. Verify the deployed studio works, then open a PR on GitHub.
+6. Verify the deployed studio works, then open a PR on GitHub.
 
 ---
 
@@ -188,7 +203,7 @@ We welcome new vision-language or vision-only models that improve retrieval qual
 | `encode_location(lat, lon)` | Return a location embedding `torch.Tensor` (or `None` if unsupported) |
 | `search(query_embedding, top_percent)` | Compute cosine similarity against `self.image_embeddings`, return `(probs, filtered_indices, top_indices)` |
 
-**Multi-spectral models** (e.g., SatCLIP, Clay) must additionally declare:
+**Multi-spectral models** (e.g., SatCLIP, Clay, OlmoEarth) must additionally declare:
 
 | Attribute | Purpose |
 | :--- | :--- |
