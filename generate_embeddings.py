@@ -42,6 +42,7 @@ from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
+from models.olmoearth_model import OlmoEarthModel
 from models.load_config import load_config
 
 
@@ -51,6 +52,7 @@ MODEL_MAP = {
     "farslip": FarSLIPModel,
     "satclip": SatCLIPModel,
     "clay": ClayModel,
+    "olmoearth": OlmoEarthModel,
 }
 
 
@@ -66,6 +68,8 @@ def get_model_kwargs(model_name, device):
             kwargs["model_name"] = model_cfg["model_name"]
         if "tokenizer_path" in model_cfg:
             kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
+        if "model_size" in model_cfg:
+            kwargs["model_size"] = model_cfg["model_size"]
     return kwargs
 
 
@@ -271,7 +275,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 def main():
     parser = argparse.ArgumentParser(description="Generate MajorTOM embeddings")
     parser.add_argument("--model_name", type=str, required=True,
-                        choices=["dinov2", "siglip", "farslip", "satclip", "clay"],
+                        choices=["dinov2", "siglip", "farslip", "satclip", "clay", "olmoearth"],
                         help="Model to use for embedding generation")
     parser.add_argument("--meta_path", type=str, required=True,
                         help="Path to metadata.parquet")
