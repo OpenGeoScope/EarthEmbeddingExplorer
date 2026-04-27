@@ -6,6 +6,7 @@ from models.clay_model import ClayModel
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.load_config import load_and_process_config
+from models.olmoearth_model import OlmoEarthModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
 
@@ -32,6 +33,7 @@ class ModelManager:
         self._load_satclip()
         self._load_farslip()
         self._load_clay()
+        self._load_olmoearth()
 
     def _load_dinov2(self):
         """Load DINOv2 model."""
@@ -104,6 +106,21 @@ class ModelManager:
                 self.models["Clay"] = ClayModel(device=self.device)
         except Exception as e:
             print(f"Failed to load Clay: {e}")
+
+    def _load_olmoearth(self):
+        """Load OlmoEarth model."""
+        try:
+            if self.config and "olmoearth" in self.config:
+                self.models["OlmoEarth"] = OlmoEarthModel(
+                    ckpt_path=self.config["olmoearth"].get("ckpt_path"),
+                    model_size=self.config["olmoearth"].get("model_size", "nano"),
+                    embedding_path=self.config["olmoearth"].get("embedding_path"),
+                    device=self.device,
+                )
+            else:
+                self.models["OlmoEarth"] = OlmoEarthModel(device=self.device)
+        except Exception as e:
+            print(f"Failed to load OlmoEarth: {e}")
 
     def get_model(self, model_name):
         """Get a loaded model by name.

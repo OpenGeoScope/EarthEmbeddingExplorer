@@ -17,3 +17,8 @@ dinov2:
 clay:
   ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   embedding_path: "ms://Major-TOM/Core-S2L2A-249k-Clay-v1_5/Clay_crop_384x384.parquet"
+
+olmoearth:
+  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  model_size: "nano"  # nano | tiny | base | large
+  embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-Base/OlmoEarth_Base_crop_384x384.parquet"

@@ -18,7 +18,7 @@ Before you start, here is a quick map of the codebase:
 EarthEmbeddingExplorer/
 ├── app.py                      # Gradio web app entry point
 ├── core/
-│   ├── model_manager.py        # Loads all 5 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay)
+│   ├── model_manager.py        # Loads all 6 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay, OlmoEarth)
 │   ├── search_engine.py        # Text / image / location / mixed search logic
 │   ├── filters.py              # Post-search time & geo filters
 │   └── exporters.py            # Download results as ZIP
@@ -31,6 +31,7 @@ EarthEmbeddingExplorer/
 │   ├── satclip_model.py        # SatCLIP wrapper (multi-spectral)
 │   ├── dinov2_model.py         # DINOv2 wrapper
 │   ├── clay_model.py           # Clay v1.5 wrapper (multi-spectral)
+│   ├── olmoearth_model.py      # OlmoEarth wrapper (multi-spectral)
 │   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
 ├── data_utils.py               # Parquet HTTP-Range download, image processing
 ├── visualize.py                # Map plotting, gallery formatting
@@ -138,7 +139,41 @@ ruff format .
 
 If you want to deploy your fork to ModelScope Studio for live testing:
 
-### 1. Duplicate the modelscope studio
+### Prerequisites: README.md YAML Metadata
+
+ModelScope Studio requires a YAML metadata header at the top of `README.md`. If this header is missing or empty, the studio will fail to initialize with a "YAML metadata missing or empty" error.
+
+Add the following YAML frontmatter to the very first line of `README.md` (before the `# Title`):
+
+```markdown
+---
+domain:
+- multi-modal
+tags:
+- remote-sensing
+- satellite-imagery
+- cross-modal-retrieval
+- embedding
+deployspec:
+  entry_file: app.py
+license: MIT
+---
+```
+
+| Field | Description |
+| :--- | :--- |
+| `domain` | Studio domain: `cv`, `nlp`, `audio`, `multi-modal`, or `AutoML` |
+| `tags` | Custom tags for discovery and filtering |
+| `datasets` | (Optional) Associated datasets |
+| `models` | (Optional) Associated models |
+| `deployspec.entry_file` | Entry point file. For Gradio/Streamlit SDK, default is `app.py` |
+| `license` | Open-source license, e.g. `MIT`, `Apache-2.0` |
+
+> **Note:** If you are opening a PR to the upstream repo, please include the YAML header in your `README.md` changes so the maintainers' studio can also pick it up.
+
+---
+
+### 1. Option A: Duplicate a new studio (first time)
 
 1. **(Optional)** Apply to join [xGPU-Explorers](https://modelscope.cn/organization/xGPU-Explorers) for free GPU access.
 2. Click **Duplicate** on the [project page](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/).
@@ -147,7 +182,16 @@ If you want to deploy your fork to ModelScope Studio for live testing:
    - `modelscope.ai` — international users
 4. Publish your studio.
 
-### 2. Push git push the code to modelscope studio
+### 1. Option B: Update an existing studio
+
+If you already have a studio (e.g. `YOUR_USERNAME/EarthEmbeddingExplorer`) and just want to push new code:
+
+1. Skip the **Duplicate** step above.
+2. Proceed directly to **Step 2** below.
+
+---
+
+### 2. Push code to ModelScope Studio
 
 1. Fork the GitHub repo and push your branch:
    ```bash
@@ -157,17 +201,45 @@ If you want to deploy your fork to ModelScope Studio for live testing:
 
 2. In ModelScope Studio, click **Download Studio** to get the Git URL with your access token.
 
-![download](images/download_studio.png)
+   ![download](images/download_studio.png)
 
-3. Add ModelScope as an upstream remote:
+3. Add ModelScope as an upstream remote. **Choose the correct domain for your account:**
+
    ```bash
-   git remote add modelscope https://oauth2:YOUR_TOKEN@www.modelscope.ai/studios/.../EarthEmbeddingExplorer.git
-   git push modelscope your-branch:master
+   # For mainland China users (modelscope.cn)
+   git remote add modelscope https://oauth2:YOUR_TOKEN@modelscope.cn/studios/YOUR_USERNAME/EarthEmbeddingExplorer.git
+
+   # For international users (modelscope.ai)
+   git remote add modelscope https://oauth2:YOUR_TOKEN@www.modelscope.ai/studios/YOUR_USERNAME/EarthEmbeddingExplorer.git
    ```
 
-4. Go to settings and restart or deep reboot the studio.
+4. Push your branch to the studio's `master` branch:
 
-5. Verify the deployed studio works, then open a PR on GitHub.
+   ```bash
+   # Normal push (if histories are compatible)
+   git push modelscope your-branch:master
+
+   # Force push (if the studio's master has a different history — common for existing studios)
+   git push modelscope your-branch:master --force
+   ```
+
+   > **Why `--force`?** ModelScope Studio initializes its own `master` branch with system commits. If your branch is based on `upstream/main`, the histories will diverge. You must use `--force` to overwrite the studio's master. Alternatively, you can create a merge branch based on the studio's master and merge your changes in, then push without `--force`.
+
+5. Go to settings and restart or deep reboot the studio.
+
+6. Verify the deployed studio works, then open a PR on GitHub.
+
+---
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| `non-fast-forward` error on push | Studio master has a different history from your branch | Use `git push modelscope your-branch:master --force`, or merge studio's master into your branch first |
+| `YAML metadata missing or empty` | `README.md` lacks the YAML frontmatter | Add the YAML header described in **Prerequisites** above |
+| `curl 18 transfer closed` during clone | Network timeout while studio clones your repo | Add environment variables in studio settings: `GIT_HTTP_LOW_SPEED_TIME=300`, `GIT_HTTP_LOW_SPEED_LIMIT=1000`, then deep reboot |
+| `ModuleNotFoundError` after restart | Missing dependency in `requirements.txt` | Add the package to `requirements.txt`, commit, push, and deep reboot |
+| Models fail to load | `DOWNLOAD_ENDPOINT` mismatch or missing checkpoints | Check studio environment variables; ensure `DOWNLOAD_ENDPOINT` matches your region (`modelscope.cn` vs `modelscope.ai`) |
 
 ---
 
@@ -188,7 +260,7 @@ We welcome new vision-language or vision-only models that improve retrieval qual
 | `encode_location(lat, lon)` | Return a location embedding `torch.Tensor` (or `None` if unsupported) |
 | `search(query_embedding, top_percent)` | Compute cosine similarity against `self.image_embeddings`, return `(probs, filtered_indices, top_indices)` |
 
-**Multi-spectral models** (e.g., SatCLIP, Clay) must additionally declare:
+**Multi-spectral models** (e.g., SatCLIP, Clay, OlmoEarth) must additionally declare:
 
 | Attribute | Purpose |
 | :--- | :--- |

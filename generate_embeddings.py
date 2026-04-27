@@ -30,7 +30,6 @@ import pyarrow.parquet as pq
 import torch
 from fsspec.parquet import open_parquet_file
 from pyproj import CRS, Transformer
-from shapely.geometry import box
 from shapely.ops import transform as shapely_transform
 
 # Ensure project root is on path
@@ -40,10 +39,10 @@ from MajorTOM.embedder.MajorTOM_Embedder import MajorTOM_Embedder
 from models.clay_model import ClayModel
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
+from models.load_config import load_config
+from models.olmoearth_model import OlmoEarthModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
-from models.load_config import load_config
-
 
 MODEL_MAP = {
     "dinov2": DINOv2Model,
@@ -51,6 +50,7 @@ MODEL_MAP = {
     "farslip": FarSLIPModel,
     "satclip": SatCLIPModel,
     "clay": ClayModel,
+    "olmoearth": OlmoEarthModel,
 }
 
 
@@ -66,6 +66,8 @@ def get_model_kwargs(model_name, device):
             kwargs["model_name"] = model_cfg["model_name"]
         if "tokenizer_path" in model_cfg:
             kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
+        if "model_size" in model_cfg:
+            kwargs["model_size"] = model_cfg["model_size"]
     return kwargs
 
 
@@ -111,7 +113,7 @@ def _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=N
     """
     if img is None:
         img, footprint, crs = embedder._read_image(row)
-    h, w, c = img.shape
+    h, w, _ = img.shape
 
     # Resize to target fragment_size if image is not exactly fragment_size
     if h != fragment_size or w != fragment_size:
@@ -136,34 +138,36 @@ def _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=N
     unique_id = hashlib.sha256(combined.encode()).hexdigest()
 
     row_dict = {
-        'unique_id': unique_id,
-        'embedding': embedding,
-        'timestamp': row_meta.timestamp.item(),
-        'product_id': row_meta.product_id.item(),
-        'grid_cell': row_meta.grid_cell.item(),
-        'grid_row_u': row_meta.grid_row_u.item(),
-        'grid_col_r': row_meta.grid_col_r.item(),
-        'geometry': geometry,
-        'centre_lat': centre_lat,
-        'centre_lon': centre_lon,
-        'utm_footprint': utm_footprint.wkt,
-        'utm_crs': crs.to_string(),
-        'pixel_bbox': pixel_bbox,
-        'parquet_row': row_meta.parquet_row.item() if 'parquet_row' in row_meta.columns else None,
-        'parquet_url': row_meta.parquet_url.item() if 'parquet_url' in row_meta.columns else None,
+        "unique_id": unique_id,
+        "embedding": embedding,
+        "timestamp": row_meta.timestamp.item(),
+        "product_id": row_meta.product_id.item(),
+        "grid_cell": row_meta.grid_cell.item(),
+        "grid_row_u": row_meta.grid_row_u.item(),
+        "grid_col_r": row_meta.grid_col_r.item(),
+        "geometry": geometry,
+        "centre_lat": centre_lat,
+        "centre_lon": centre_lon,
+        "utm_footprint": utm_footprint.wkt,
+        "utm_crs": crs.to_string(),
+        "pixel_bbox": pixel_bbox,
+        "parquet_row": row_meta.parquet_row.item() if "parquet_row" in row_meta.columns else None,
+        "parquet_url": row_meta.parquet_url.item() if "parquet_url" in row_meta.columns else None,
     }
 
     gdf = gpd.GeoDataFrame([row_dict])
     column_types = {
-        'grid_row_u': 'int16',
-        'grid_col_r': 'int16',
-        'centre_lat': 'float32',
-        'centre_lon': 'float32',
+        "grid_row_u": "int16",
+        "grid_col_r": "int16",
+        "centre_lat": "float32",
+        "centre_lon": "float32",
     }
     return gdf.astype(column_types)
 
 
-def generate_embeddings(model_name, meta_path, parquet_input, output_path, device=None, max_row_groups=None, fragment_size=None):
+def generate_embeddings(
+    model_name, meta_path, parquet_input, output_path, device=None, max_row_groups=None, fragment_size=None
+):
     """Main embedding generation logic."""
     if model_name not in MODEL_MAP:
         raise ValueError(f"Unknown model: {model_name}. Choose from {list(MODEL_MAP.keys())}")
@@ -188,7 +192,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 
     # Override fragment_size if specified (e.g. for pre-cropped 384x384 imagery)
     if fragment_size is not None:
-        embedder.frag_params['fragment_size'] = fragment_size
+        embedder.frag_params["fragment_size"] = fragment_size
         print(f"Override fragment_size to {fragment_size}")
 
     use_single_fragment = fragment_size is not None
@@ -206,7 +210,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
         meta_df = pd.read_parquet(resolved_meta)
 
         bands = embedder.bands()
-        columns = list(bands) + ["product_id", "grid_cell", "timestamp"]
+        columns = [*list(bands), "product_id", "grid_cell", "timestamp"]
 
         # Open parquet file
         if os.path.isfile(pf_path):
@@ -225,9 +229,7 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
             grid_cell = row["grid_cell"][0].as_py()
             product_id = row["product_id"][0].as_py()
 
-            row_meta = meta_df[
-                (meta_df["grid_cell"] == grid_cell) & (meta_df["product_id"] == product_id)
-            ].head(1)
+            row_meta = meta_df[(meta_df["grid_cell"] == grid_cell) & (meta_df["product_id"] == product_id)].head(1)
 
             if row_meta.empty:
                 print(f"  ⚠️ Metadata not found for {product_id} / {grid_cell}, skipping.")
@@ -238,7 +240,9 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
                 img, footprint, crs = embedder._read_image(row)
                 h, w = img.shape[:2]
                 if h <= fragment_size and w <= fragment_size:
-                    embed_dict = _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=img, footprint=footprint, crs=crs)
+                    embed_dict = _embed_single_fragment(
+                        embedder, row, row_meta, device, fragment_size, img=img, footprint=footprint, crs=crs
+                    )
                 else:
                     embed_dict = embedder(row, row_meta, device=device)
             else:
@@ -270,25 +274,37 @@ def generate_embeddings(model_name, meta_path, parquet_input, output_path, devic
 
 def main():
     parser = argparse.ArgumentParser(description="Generate MajorTOM embeddings")
-    parser.add_argument("--model_name", type=str, required=True,
-                        choices=["dinov2", "siglip", "farslip", "satclip", "clay"],
-                        help="Model to use for embedding generation")
-    parser.add_argument("--meta_path", type=str, required=True,
-                        help="Path to metadata.parquet")
-    parser.add_argument("--parquet_input", type=str, required=True,
-                        help="Path to a parquet file or directory containing parquet files")
-    parser.add_argument("--output_path", type=str, required=True,
-                        help="Output GeoParquet file path")
-    parser.add_argument("--device", type=str, default=None,
-                        help="Device to run on (cuda/cpu). Auto-detected if omitted.")
-    parser.add_argument("--max_row_groups", type=int, default=None,
-                        help="Maximum number of row groups to process per parquet file (default: all).")
-    parser.add_argument("--fragment_size", type=int, default=None,
-                        help=(
-                            "Override the default fragment size (model input size). "
-                            "Useful for pre-cropped imagery (e.g. 384x384) where each image "
-                            "should produce a single embedding instead of multiple fragments."
-                        ))
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        required=True,
+        choices=["dinov2", "siglip", "farslip", "satclip", "clay"],
+        help="Model to use for embedding generation",
+    )
+    parser.add_argument("--meta_path", type=str, required=True, help="Path to metadata.parquet")
+    parser.add_argument(
+        "--parquet_input", type=str, required=True, help="Path to a parquet file or directory containing parquet files"
+    )
+    parser.add_argument("--output_path", type=str, required=True, help="Output GeoParquet file path")
+    parser.add_argument(
+        "--device", type=str, default=None, help="Device to run on (cuda/cpu). Auto-detected if omitted."
+    )
+    parser.add_argument(
+        "--max_row_groups",
+        type=int,
+        default=None,
+        help="Maximum number of row groups to process per parquet file (default: all).",
+    )
+    parser.add_argument(
+        "--fragment_size",
+        type=int,
+        default=None,
+        help=(
+            "Override the default fragment size (model input size). "
+            "Useful for pre-cropped imagery (e.g. 384x384) where each image "
+            "should produce a single embedding instead of multiple fragments."
+        ),
+    )
 
     args = parser.parse_args()
     generate_embeddings(

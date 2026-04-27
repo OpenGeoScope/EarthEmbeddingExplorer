@@ -125,7 +125,7 @@ class MajorTOM_Embedder(torch.nn.Module):
             h, w = max([el[0] for el in shapes]), max([el[1] for el in shapes]) # maximum size
             for layer_idx, layer in enumerate(img):
                 if layer.shape != (h,w):
-                    img[layer_idx] = cv2.resize(layer, (h,w), interpolation=cv2.INTER_NEAREST)
+                    img[layer_idx] = cv2.resize(layer, (h,w), interpolation=cv2.INTER_CUBIC)
         img = torch.from_numpy(np.stack(img,-1).astype(np.float32))
 
         return img, footprint, crs
