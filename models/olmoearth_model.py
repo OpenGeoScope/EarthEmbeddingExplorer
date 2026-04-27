@@ -23,10 +23,6 @@ class OlmoEarthModel:
     with the MajorTOM Core-S2L2A-249k dataset.
     """
 
-    # MajorTOM band order -> OlmoEarth band order reorder indices
-    # MajorTOM:  [B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12]
-    # OlmoEarth: [B02, B03, B04, B08, B05, B06, B07, B8A, B11, B12, B01, B09]
-    _BAND_REORDER = (1, 2, 3, 7, 4, 5, 6, 8, 10, 11, 0, 9)
 
     def __init__(
         self,
@@ -55,8 +51,8 @@ class OlmoEarthModel:
         self.df_embed = None
         self.image_embeddings = None
 
-        # Sentinel-2 L2A bands (MajorTOM order)
-        self.bands = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B11", "B12"]
+        # OlmoEarth expected band order (used by reorder_multiband in search_engine / callbacks)
+        self.bands = ["B02", "B03", "B04", "B08", "B05", "B06", "B07", "B8A", "B11", "B12", "B01", "B09"]
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.size = (128, 128)
 
@@ -66,6 +62,12 @@ class OlmoEarthModel:
 
     def load_model(self):
         """Load OlmoEarth model respecting DOWNLOAD_ENDPOINT."""
+        # OlmoEarth requires torch >= 2.8 due to custom C extensions in olmoearth-pretrain-minimal
+        torch_version = torch.__version__.split('+')[0]
+        if torch_version < "2.8":
+            print(f"OlmoEarth requires torch>=2.8, found {torch.__version__}. Skipping model load.")
+            return
+
         endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 
         # Determine model source
@@ -151,39 +153,6 @@ class OlmoEarthModel:
         except Exception as e:
             print(f"Error loading OlmoEarth embeddings: {e}")
 
-    def _read_multiband_from_tiff(self, tiff_path):
-        """Read a multi-band GeoTIFF file and return (C, H, W) torch tensor."""
-        import rasterio
-        with rasterio.open(tiff_path) as src:
-            data = src.read().astype(np.float32)  # (C, H, W)
-            if data.shape[0] != 12:
-                print(f"Warning: Expected 12 bands, got {data.shape[0]} in {tiff_path}")
-            if data.shape[0] < 12:
-                padded = np.zeros((12, data.shape[1], data.shape[2]), dtype=np.float32)
-                padded[:data.shape[0]] = data
-                data = padded
-            elif data.shape[0] > 12:
-                data = data[:12]
-        return torch.from_numpy(data).unsqueeze(0)  # (1, C, H, W)
-
-    def _read_multiband_from_dir(self, dir_path):
-        """Read single-band GeoTIFFs from directory (B01.tif, B02.tif, ...) and stack."""
-        import rasterio
-        bands = self.bands
-        img = []
-        for band in bands:
-            band_path = os.path.join(dir_path, f"{band}.tif")
-            if not os.path.exists(band_path):
-                band_path_alt = os.path.join(dir_path, f"{band.lower()}.tif")
-                if os.path.exists(band_path_alt):
-                    band_path = band_path_alt
-                else:
-                    raise FileNotFoundError(f"Band file not found: {band_path}")
-            with rasterio.open(band_path) as src:
-                img.append(src.read()[0].astype(np.float32))
-        data = np.stack(img, axis=0)  # (12, H, W)
-        return torch.from_numpy(data).unsqueeze(0)  # (1, C, H, W)
-
     def _prepare_input(self, tensor):
         """
         Convert a torch.Tensor from MajorTOM format to OlmoEarth format.
@@ -200,9 +169,6 @@ class OlmoEarthModel:
 
         # Convert to float32 to avoid dtype issues (e.g. UInt16 from Sentinel-2 raw data)
         tensor = tensor.float()
-
-        # Reorder bands: MajorTOM -> OlmoEarth
-        tensor = tensor[:, self._BAND_REORDER, :, :]
 
         # Convert to (N, H, W, C) numpy for normalizer
         np_tensor = tensor.permute(0, 2, 3, 1).cpu().numpy()
@@ -250,12 +216,7 @@ class OlmoEarthModel:
         Encode an image into a feature embedding.
 
         Args:
-            image (str, Path, PIL.Image, torch.Tensor, or np.ndarray): Input image.
-                - str / Path: Path to a GeoTIFF file (single-band or multi-band).
-                    For multi-band GeoTIFF with 12 bands, bands are read in file order
-                    and assumed to be in MajorTOM order [B01..B12].
-                    For single-band files, a directory path can be provided containing
-                    files named B01.tif, B02.tif, etc.
+            image (PIL.Image, torch.Tensor, or np.ndarray): Input image.
                 - PIL.Image: RGB image; adapted to 12 bands (R->B04, G->B03, B->B02).
                 - torch.Tensor: Image tensor with shape [C, H, W] or [N, C, H, W].
                 - np.ndarray: Image array with shape [H, W, C] or [N, H, W, C].
@@ -270,16 +231,6 @@ class OlmoEarthModel:
             return None
 
         try:
-            if isinstance(image, (str, os.PathLike)):
-                image_path = str(image)
-                if os.path.isdir(image_path):
-                    # Directory of single-band GeoTIFFs
-                    img = self._read_multiband_from_dir(image_path)
-                else:
-                    # Single multi-band GeoTIFF
-                    img = self._read_multiband_from_tiff(image_path)
-                return self.encode_image(img)
-
             if isinstance(image, torch.Tensor):
                 if image.dim() == 3:
                     image = image.unsqueeze(0)
@@ -365,22 +316,6 @@ class OlmoEarthModel:
                 or [embedding_dim].
         """
         return self.encode_image(input, preprocess_s2=True, normalize=False)
-
-    def encode_text(self, text):
-        """
-        Encode a text query into a feature embedding.
-
-        OlmoEarth does not support text encoding.
-        """
-        return None
-
-    def encode_location(self, lat, lon):
-        """
-        Encode a (latitude, longitude) pair into a vector.
-
-        OlmoEarth does not support location encoding.
-        """
-        return None
 
     def search(self, query_features, top_k=5, top_percent=None, threshold=0.0):
         """

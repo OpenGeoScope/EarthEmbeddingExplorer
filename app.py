@@ -218,7 +218,7 @@ div.form:has(.filter-checkbox) {
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=["FarSLIP", "SigLIP", "OlmoEarth"], value="FarSLIP", label="Model for Text/Image"
+                        choices=["FarSLIP", "SigLIP"], value="FarSLIP", label="Model for Text/Image"
                     )
 
                     gr.Markdown("#### 📝 Text Query")
