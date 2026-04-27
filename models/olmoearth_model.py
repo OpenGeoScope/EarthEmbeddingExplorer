@@ -109,11 +109,12 @@ class OlmoEarthModel:
             if endpoint in ("modelscope.ai", "ai"):
                 print(f"Loading OlmoEarth {self.model_size} from ModelScope (modelscope.ai)...")
                 os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
+                repo_id = f"WeijieWu/OlmoEarth-v1-{self.model_size.capitalize()}"
             else:
                 print(f"Loading OlmoEarth {self.model_size} from ModelScope (modelscope.cn)...")
-
+                repo_id = f"allenai/OlmoEarth-v1-{self.model_size.capitalize()}"
+            
             from modelscope.hub.snapshot_download import snapshot_download
-            repo_id = f"allenai/OlmoEarth-v1-{self.model_size.capitalize()}"
             model_path = snapshot_download(repo_id=repo_id)
             print(f"OlmoEarth weights cached at: {model_path}")
 
