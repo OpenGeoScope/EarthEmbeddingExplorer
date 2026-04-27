@@ -139,41 +139,8 @@ ruff format .
 
 If you want to deploy your fork to ModelScope Studio for live testing:
 
-### Prerequisites: README.md YAML Metadata
 
-ModelScope Studio requires a YAML metadata header at the top of `README.md`. If this header is missing or empty, the studio will fail to initialize with a "YAML metadata missing or empty" error.
-
-Add the following YAML frontmatter to the very first line of `README.md` (before the `# Title`):
-
-```markdown
----
-domain:
-- multi-modal
-tags:
-- remote-sensing
-- satellite-imagery
-- cross-modal-retrieval
-- embedding
-deployspec:
-  entry_file: app.py
-license: MIT
----
-```
-
-| Field | Description |
-| :--- | :--- |
-| `domain` | Studio domain: `cv`, `nlp`, `audio`, `multi-modal`, or `AutoML` |
-| `tags` | Custom tags for discovery and filtering |
-| `datasets` | (Optional) Associated datasets |
-| `models` | (Optional) Associated models |
-| `deployspec.entry_file` | Entry point file. For Gradio/Streamlit SDK, default is `app.py` |
-| `license` | Open-source license, e.g. `MIT`, `Apache-2.0` |
-
-> **Note:** If you are opening a PR to the upstream repo, please include the YAML header in your `README.md` changes so the maintainers' studio can also pick it up.
-
----
-
-### 1. Option A: Duplicate a new studio (first time)
+### 1. Duplicate a new studio (first time)
 
 1. **(Optional)** Apply to join [xGPU-Explorers](https://modelscope.cn/organization/xGPU-Explorers) for free GPU access.
 2. Click **Duplicate** on the [project page](https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/).
@@ -181,13 +148,6 @@ license: MIT
    - `modelscope.cn` — mainland China (fastest)
    - `modelscope.ai` — international users
 4. Publish your studio.
-
-### 1. Option B: Update an existing studio
-
-If you already have a studio (e.g. `YOUR_USERNAME/EarthEmbeddingExplorer`) and just want to push new code:
-
-1. Skip the **Duplicate** step above.
-2. Proceed directly to **Step 2** below.
 
 ---
 
@@ -218,14 +178,9 @@ If you already have a studio (e.g. `YOUR_USERNAME/EarthEmbeddingExplorer`) and j
    ```bash
    # Normal push (if histories are compatible)
    git push modelscope your-branch:master
-
-   # Force push (if the studio's master has a different history — common for existing studios)
-   git push modelscope your-branch:master --force
    ```
 
-   > **Why `--force`?** ModelScope Studio initializes its own `master` branch with system commits. If your branch is based on `upstream/main`, the histories will diverge. You must use `--force` to overwrite the studio's master. Alternatively, you can create a merge branch based on the studio's master and merge your changes in, then push without `--force`.
-
-5. Go to settings and restart or deep reboot the studio.
+5. Go to settings and restart or deep reboot (if new requirements should be installed) the studio.
 
 6. Verify the deployed studio works, then open a PR on GitHub.
 
