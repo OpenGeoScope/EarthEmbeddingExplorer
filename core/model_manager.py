@@ -108,19 +108,19 @@ class ModelManager:
             print(f"Failed to load Clay: {e}")
 
     def _load_olmoearth(self):
-        """Load OLMoEarth model."""
+        """Load OlmoEarth model."""
         try:
             if self.config and "olmoearth" in self.config:
-                self.models["OLMoEarth"] = OlmoEarthModel(
+                self.models["OlmoEarth"] = OlmoEarthModel(
                     ckpt_path=self.config["olmoearth"].get("ckpt_path"),
                     model_size=self.config["olmoearth"].get("model_size", "nano"),
                     embedding_path=self.config["olmoearth"].get("embedding_path"),
                     device=self.device,
                 )
             else:
-                self.models["OLMoEarth"] = OlmoEarthModel(device=self.device)
+                self.models["OlmoEarth"] = OlmoEarthModel(device=self.device)
         except Exception as e:
-            print(f"Failed to load OLMoEarth: {e}")
+            print(f"Failed to load OlmoEarth: {e}")
 
     def get_model(self, model_name):
         """Get a loaded model by name.

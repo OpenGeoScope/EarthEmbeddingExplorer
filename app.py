@@ -147,11 +147,11 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OLMoEarth"], value="Clay", label="Model"
+                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"], value="Clay", label="Model"
                     )
 
                     gr.Markdown(
-                        "> **Note:** For multi-spectral models (SatCLIP / Clay / OLMoEarth), please select a geolocation on the map "
+                        "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth), please select a geolocation on the map "
                         "or enter coordinates below, then click **'Download Image by Geolocation'** to fetch the Sentinel-2 "
                         "multi-band image before running the search. RGB uploads are not compatible with these models."
                     )
@@ -218,7 +218,7 @@ div.form:has(.filter-checkbox) {
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=["FarSLIP", "SigLIP", "OLMoEarth"], value="FarSLIP", label="Model for Text/Image"
+                        choices=["FarSLIP", "SigLIP", "OlmoEarth"], value="FarSLIP", label="Model for Text/Image"
                     )
 
                     gr.Markdown("#### 📝 Text Query")

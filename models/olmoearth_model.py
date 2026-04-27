@@ -10,22 +10,22 @@ from PIL import Image
 
 class OlmoEarthModel:
     """
-    OLMoEarth model wrapper for Sentinel-2 multi-spectral data embedding and search.
+    OlmoEarth model wrapper for Sentinel-2 multi-spectral data embedding and search.
 
     This class provides a unified interface for:
-    - Loading OLMoEarth models from HuggingFace (Nano/Tiny/Base/Large)
-    - Encoding images into embeddings using the OLMoEarth encoder
+    - Loading OlmoEarth models from HuggingFace (Nano/Tiny/Base/Large)
+    - Encoding images into embeddings using the OlmoEarth encoder
     - Loading pre-computed embeddings
     - Searching similar images using cosine similarity
 
-    OLMoEarth is a multi-modal, spatio-temporal foundation model. This wrapper
+    OlmoEarth is a multi-modal, spatio-temporal foundation model. This wrapper
     adapts it for single-timestep (T=1) Sentinel-2 L2A inputs to be compatible
     with the MajorTOM Core-S2L2A-249k dataset.
     """
 
-    # MajorTOM band order -> OLMoEarth band order reorder indices
+    # MajorTOM band order -> OlmoEarth band order reorder indices
     # MajorTOM:  [B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12]
-    # OLMoEarth: [B02, B03, B04, B08, B05, B06, B07, B8A, B11, B12, B01, B09]
+    # OlmoEarth: [B02, B03, B04, B08, B05, B06, B07, B8A, B11, B12, B01, B09]
     _BAND_REORDER = (1, 2, 3, 7, 4, 5, 6, 8, 10, 11, 0, 9)
 
     def __init__(
@@ -39,7 +39,7 @@ class OlmoEarthModel:
         Initialize the OlmoEarthModel.
 
         Args:
-            ckpt_path (str): Ignored for OLMoEarth; weights are auto-downloaded
+            ckpt_path (str): Ignored for OlmoEarth; weights are auto-downloaded
                 from HuggingFace via olmoearth-pretrain-minimal.
             model_size (str): One of "nano", "tiny", "base", "large".
             embedding_path (str): Path to pre-computed embeddings parquet file.
@@ -64,7 +64,7 @@ class OlmoEarthModel:
             self.load_embeddings()
 
     def load_model(self):
-        """Load OLMoEarth model from HuggingFace via olmoearth-pretrain-minimal."""
+        """Load OlmoEarth model from HuggingFace via olmoearth-pretrain-minimal."""
         try:
             from olmoearth_pretrain_minimal import ModelID, Normalizer, load_model_from_id
             from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.constants import Modality
@@ -78,12 +78,12 @@ class OlmoEarthModel:
 
             if self.model_size not in size_to_id:
                 raise ValueError(
-                    f"Unknown OLMoEarth model_size: {self.model_size}. "
+                    f"Unknown OlmoEarth model_size: {self.model_size}. "
                     f"Choose from {list(size_to_id.keys())}"
                 )
 
             model_id = size_to_id[self.model_size]
-            print(f"Loading OLMoEarth {self.model_size} from HuggingFace...")
+            print(f"Loading OlmoEarth {self.model_size} from HuggingFace...")
             self.model = load_model_from_id(model_id, load_weights=True)
             self.model = self.model.to(self.device)
             self.model.eval()
@@ -92,13 +92,13 @@ class OlmoEarthModel:
             # Cache Modality enum for reuse
             self._modality = Modality.SENTINEL2_L2A
 
-            print(f"OLMoEarth {self.model_size} loaded on {self.device}")
+            print(f"OlmoEarth {self.model_size} loaded on {self.device}")
         except Exception as e:
-            print(f"Error loading OLMoEarth model: {e}")
+            print(f"Error loading OlmoEarth model: {e}")
 
     def load_embeddings(self):
         """Load pre-computed embeddings from parquet file."""
-        print(f"Loading OLMoEarth embeddings from {self.embedding_path}...")
+        print(f"Loading OlmoEarth embeddings from {self.embedding_path}...")
         try:
             if not os.path.exists(self.embedding_path):
                 print(f"Warning: Embedding file not found at {self.embedding_path}")
@@ -112,9 +112,9 @@ class OlmoEarthModel:
             )
             # NOTE: Official tutorial does NOT L2-normalize MEAN-pooled embeddings.
             # Keeping raw dot-product for search consistency with allenai/olmoearth_ml4rs_tutorial.
-            print(f"OLMoEarth Data loaded: {len(self.df_embed)} records")
+            print(f"OlmoEarth Data loaded: {len(self.df_embed)} records")
         except Exception as e:
-            print(f"Error loading OLMoEarth embeddings: {e}")
+            print(f"Error loading OlmoEarth embeddings: {e}")
 
     def _read_multiband_from_tiff(self, tiff_path):
         """Read a multi-band GeoTIFF file and return (C, H, W) torch tensor."""
@@ -151,19 +151,19 @@ class OlmoEarthModel:
 
     def _prepare_input(self, tensor):
         """
-        Convert a torch.Tensor from MajorTOM format to OLMoEarth format.
+        Convert a torch.Tensor from MajorTOM format to OlmoEarth format.
 
         Args:
             tensor (torch.Tensor): Shape (N, C, H, W) where C=12 in MajorTOM order.
 
         Returns:
             torch.Tensor: Normalized tensor of shape (N, H, W, T=1, C=12) in
-                OLMoEarth band order.
+                OlmoEarth band order.
         """
         if tensor.dim() == 3:
             tensor = tensor.unsqueeze(0)
 
-        # Reorder bands: MajorTOM -> OLMoEarth
+        # Reorder bands: MajorTOM -> OlmoEarth
         tensor = tensor[:, self._BAND_REORDER, :, :]
 
         # Convert to (N, H, W, C) numpy for normalizer
@@ -193,7 +193,7 @@ class OlmoEarthModel:
 
         batch_size = normalized_tensor.shape[0]
         h, w = normalized_tensor.shape[1], normalized_tensor.shape[2]
-        num_bandsets = 3  # Determined empirically from OLMoEarth tokenization config
+        num_bandsets = 3  # Determined empirically from OlmoEarth tokenization config
 
         timestamps = torch.zeros(batch_size, 1, 3, dtype=torch.long, device=self.device)
         # Use a default month index (e.g., 6 for July) since single-timestep
@@ -221,8 +221,8 @@ class OlmoEarthModel:
                 - PIL.Image: RGB image; adapted to 12 bands (R->B04, G->B03, B->B02).
                 - torch.Tensor: Image tensor with shape [C, H, W] or [N, C, H, W].
                 - np.ndarray: Image array with shape [H, W, C] or [N, H, W, C].
-            preprocess_s2 (bool): Ignored for OLMoEarth; kept for API consistency.
-            normalize (bool): Ignored for OLMoEarth; kept for API consistency.
+            preprocess_s2 (bool): Ignored for OlmoEarth; kept for API consistency.
+            normalize (bool): Ignored for OlmoEarth; kept for API consistency.
 
         Returns:
             torch.Tensor: Normalized embedding vector with shape [embedding_dim] or
@@ -273,7 +273,7 @@ class OlmoEarthModel:
                 img_np = np.array(image).astype(np.float32)  # (H, W, 3)
 
                 # Construct 12 channels
-                # OLMoEarth S2 bands: B01, B02(B), B03(G), B04(R), B05, B06, B07, B08, B8A, B09, B10, B11, B12
+                # OlmoEarth S2 bands: B01, B02(B), B03(G), B04(R), B05, B06, B07, B08, B8A, B09, B10, B11, B12
                 # For RGB input, we only have R, G, B which map to B04, B03, B02
                 input_tensor = np.zeros(
                     (12, self.size[0], self.size[1]), dtype=np.float32
@@ -288,7 +288,7 @@ class OlmoEarthModel:
                 raise ValueError(f"Unsupported image type: {type(image)}")
 
         except Exception as e:
-            print(f"Error encoding image in OLMoEarth: {e}")
+            print(f"Error encoding image in OlmoEarth: {e}")
             import traceback
 
             traceback.print_exc()
@@ -324,7 +324,7 @@ class OlmoEarthModel:
         """
         Encode a text query into a feature embedding.
 
-        OLMoEarth does not support text encoding.
+        OlmoEarth does not support text encoding.
         """
         return None
 
@@ -332,7 +332,7 @@ class OlmoEarthModel:
         """
         Encode a (latitude, longitude) pair into a vector.
 
-        OLMoEarth does not support location encoding.
+        OlmoEarth does not support location encoding.
         """
         return None
 

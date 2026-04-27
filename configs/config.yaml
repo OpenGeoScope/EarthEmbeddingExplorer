@@ -21,4 +21,4 @@ clay:
 olmoearth:
   ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
   model_size: "nano"  # nano | tiny | base | large
-  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-OLMoEarth/OLMoEarth_crop_384x384.parquet"
+  embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-Base/OlmoEarth_Base_crop_384x384.parquet"

@@ -18,7 +18,7 @@ Before you start, here is a quick map of the codebase:
 EarthEmbeddingExplorer/
 ├── app.py                      # Gradio web app entry point
 ├── core/
-│   ├── model_manager.py        # Loads all 6 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay, OLMoEarth)
+│   ├── model_manager.py        # Loads all 6 models (SigLIP, FarSLIP, SatCLIP, DINOv2, Clay, OlmoEarth)
 │   ├── search_engine.py        # Text / image / location / mixed search logic
 │   ├── filters.py              # Post-search time & geo filters
 │   └── exporters.py            # Download results as ZIP
@@ -31,7 +31,7 @@ EarthEmbeddingExplorer/
 │   ├── satclip_model.py        # SatCLIP wrapper (multi-spectral)
 │   ├── dinov2_model.py         # DINOv2 wrapper
 │   ├── clay_model.py           # Clay v1.5 wrapper (multi-spectral)
-│   ├── olmoearth_model.py      # OLMoEarth wrapper (multi-spectral)
+│   ├── olmoearth_model.py      # OlmoEarth wrapper (multi-spectral)
 │   └── load_config.py          # Config & remote-path resolver (hf:// / ms://)
 ├── data_utils.py               # Parquet HTTP-Range download, image processing
 ├── visualize.py                # Map plotting, gallery formatting
@@ -189,7 +189,7 @@ We welcome new vision-language or vision-only models that improve retrieval qual
 | `encode_location(lat, lon)` | Return a location embedding `torch.Tensor` (or `None` if unsupported) |
 | `search(query_embedding, top_percent)` | Compute cosine similarity against `self.image_embeddings`, return `(probs, filtered_indices, top_indices)` |
 
-**Multi-spectral models** (e.g., SatCLIP, Clay, OLMoEarth) must additionally declare:
+**Multi-spectral models** (e.g., SatCLIP, Clay, OlmoEarth) must additionally declare:
 
 | Attribute | Purpose |
 | :--- | :--- |
