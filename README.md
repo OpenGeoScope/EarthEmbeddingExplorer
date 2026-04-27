@@ -81,10 +81,10 @@ Because the original tiles are large (1068 × 1068 pixels) and the full dataset 
 
 ### Embedding Models
 
-The retrieval engine is powered by four complementary embedding models. Think of them as different "encoders" that map images, text, or coordinates into a shared latent space. If you are coming from remote sensing, think of them as feature extractors that turn raw pixels (and optional metadata) into comparable signatures.
+The retrieval engine is powered by six complementary embedding models. Think of them as different "encoders" that map images, text, or coordinates into a shared latent space. If you are coming from remote sensing, think of them as feature extractors that turn raw pixels (and optional metadata) into comparable signatures.
 
 
-**The four models we use:**
+**The six models we use:**
 
 | Model | Modality | Training Data | Best For |
 | :--- | :--- | :--- | :--- |
@@ -93,12 +93,14 @@ The retrieval engine is powered by four complementary embedding models. Think of
 | **SatCLIP** [5] | image + location | Satellite image–GPS coordinate pairs | Location-aware retrieval |
 | **DINOv2** [7] | image only | Natural images (self-supervised) | Pure visual similarity search |
 | **Clay** [9] | image only | Multi-sensor EO (MAE self-supervised) | Multi-spectral Earth observation features |
+| **OLMoEarth** [10] | image only | Sentinel-2 L2A + 6 derived maps (self-supervised) | Pure visual similarity with spectral awareness |
 
 - **SigLIP** improves upon CLIP with a sigmoid loss and works well for everyday vocabulary.
 - **FarSLIP** is fine-tuned on remote-sensing captions, making it better at concepts like *"deforestation"* or *"salt evaporation ponds"*.
 - **SatCLIP** jointly encodes images and their geographic coordinates, enabling queries like *"show me places near (lat, lon)"*.
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
 - **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. It captures rich geospatial features across 10 Sentinel-2 bands, making it ideal for pure visual similarity search in the remote-sensing domain.
+- **OLMoEarth** is an Earth-system foundation model trained on Sentinel-2 and derived geospatial maps. It uses a flexible multi-modal architecture and excels at capturing spectral and spatial patterns from 12-band multispectral imagery.
 
 Models such as **CLIP** [2] learn to align images and text by training on massive pairs of (image, caption) data from the web. An *image encoder* compresses a photo into a vector; a *text encoder* does the same for a sentence. The key property is that semantically matching pairs end up close together in vector space, while unrelated pairs are far apart.
 
@@ -115,7 +117,7 @@ Models such as **CLIP** [2] learn to align images and text by training on massiv
 </div>
 
 **Search pipeline:**
-1. We pre-compute embeddings for all ~249k sampled satellite images using each of the four models.
+1. We pre-compute embeddings for all ~249k sampled satellite images using each of the six models.
 2. When you submit a query (text, image, or coordinates), the app encodes it with the corresponding model's encoder.
 3. Cosine similarity scores are computed against the entire image index.
 4. High-scoring locations are plotted on an interactive map, and the top-5 most similar images are fetched on demand.
@@ -156,6 +158,7 @@ Each embedding dataset contains the vector representation of every sampled image
 | DINOv2 | Core-S2RGB-249k-DINOv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-DINOv2) |
 | SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SatCLIP) |
 | Clay | Core-S2L2A-249k-Clay-v1.5 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-Clay-v1.5) |
+| OLMoEarth | Core-S2RGB-249k-OLMoEarth | [ModelScope](https://modelscope.cn/datasets/WeijieWu/olmoearth_embdding) |
 
 > **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
 
@@ -180,6 +183,14 @@ pip install -r requirements.txt
 # 3. Launch the app
 python app.py
 ```
+
+> **Note on OLMoEarth compatibility:** `olmoearth-pretrain-minimal` requires `torch >= 2.8, < 2.9`. If your environment has an older PyTorch version, we strongly recommend creating a dedicated conda environment to avoid conflicts:
+> ```bash
+> conda create -n eee python=3.12
+> conda activate eee
+> conda install pytorch==2.8.0 torchvision==0.23.0 pytorch-cuda=12.4 -c pytorch -c nvidia
+> pip install -r requirements.txt
+> ```
 
 By default the app downloads models and embeddings from ModelScope. You can switch the download endpoint via the environment variable:
 
@@ -258,6 +269,7 @@ We thank the following open-source projects and datasets that made EarthEmbeddin
 - [SatCLIP](https://github.com/microsoft/satclip) — Satellite location-image pretraining
 - [DINOv2](https://huggingface.co/facebook/dinov2-large) — Self-supervised vision transformer
 - [Clay](https://github.com/Clay-foundation/model) — Multi-spectral Earth observation foundation model
+- [OLMoEarth](https://huggingface.co/allenai/OLMoEarth-Base-WS) — Earth-system foundation model for multimodal Earth observation
 
 **Datasets:**
 - [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) — Expandable datasets for Earth observation by ESA
@@ -302,3 +314,5 @@ If you use EarthEmbeddingExplorer in your research, please cite:
 [8] Zheng, Y., et al. (2026). EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images. *4th ICLR Workshop on ML4RS (Tutorial Track)*.
 
 [9] Development Seed. (2024). Clay: An Open Source AI Model and Interface for Earth. *https://github.com/Clay-foundation/model*.
+
+[10] Herzog, H., et al. (2025). OlmoEarth: Stable Latent Image Modeling for Multimodal Earth Observation. *arXiv preprint arXiv:2511.13655*.
