@@ -3,8 +3,8 @@
 <div style="display: flex; gap: 0.2em; align-items: center; justify-content: center;">
     <a href="https://modelscope.cn/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.cn-xGPU-624aff"></a>
     <a href="https://modelscope.ai/studios/Major-TOM/EarthEmbeddingExplorer/"><img src="https://img.shields.io/badge/Open in ModelScope.ai-xGPU-624aff"></a>
-    <a href="https://modelscope.cn/datasets/VoyagerX/EarthEmbeddings"><img src="https://img.shields.io/badge/👾 MS-Dataset-624aff"></a>
-    <a href="https://huggingface.co/datasets/ML4RS-Anonymous/EarthEmbeddings/tree/main"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
+    <a href="https://modelscope.cn/collections/Major-TOM/Core-S2L2A-249k"><img src="https://img.shields.io/badge/👾 MS-Dataset-624aff"></a>
+    <a href="https://huggingface.co/collections/Major-TOM/core-s2l2a-249k"><img src="https://img.shields.io/badge/🤗 HF-Dataset-FFD21E"></a>
     <a href="https://huggingface.co/spaces/ML4Sustain/EarthExplorer/blob/main/Tutorial.md"> <img src="https://img.shields.io/badge/Document-📖-007bff"> </a>
     <a href="https://modelscope.cn/studios/VoyagerX/EarthExplorer/file/view/master/Tutorial_zh.md?status=1"> <img src="https://img.shields.io/badge/中文文档-📖-007bff"> </a>
     <a href="https://openreview.net/forum?id=LSsEenJVqD"> <img src="https://img.shields.io/badge/Tutorial-@ICLR26📖-007bff"> </a>
