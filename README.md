@@ -1,7 +1,3 @@
----
-license: apache-2.0
----
-
 # EarthEmbeddingExplorer
 
 <div align="center">
