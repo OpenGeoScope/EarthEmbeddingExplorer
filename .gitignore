@@ -6,6 +6,7 @@ modelscope_ai.yaml
 .qwen/
 task.md
 REPORT.md
+*REPORT*.md
 *.log
 fix_*.py
 add_*.py

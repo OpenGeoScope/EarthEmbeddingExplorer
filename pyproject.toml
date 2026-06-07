@@ -9,7 +9,9 @@ exclude = [
     ".vscode",
     "__pycache__",
     "MajorTOM",
-    "models",
+    "models/Clay",
+    "models/FarSLIP",
+    "models/SatCLIP",
     "examples",
 ]
 
@@ -30,6 +32,7 @@ select = [
 ignore = [
     "E501",  # Line length handled by formatter
     "N812",  # torch.nn.functional as F is PyTorch convention
+    "RUF001",  # Chinese UI strings intentionally use fullwidth punctuation
 ]
 
 # Rules that can be auto-fixed
