@@ -1,4 +1,5 @@
 import os
+
 import gradio as gr
 
 from core.exporters import save_plot
@@ -25,7 +26,6 @@ from ui.callbacks import (
     reset_to_global_map,
 )
 
-
 # Environment variable for controlling download endpoint
 # Options: 'modelscope.cn', 'modelscope.ai', 'huggingface'
 DOWNLOAD_ENDPOINT = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
@@ -37,12 +37,13 @@ model_manager = ModelManager()
 models = model_manager.models  # Keep for backward compatibility with existing code
 
 INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款工具跨模态遥感图像检索工具，允许您使用自然语言描述、图像、地理位置或简单地在地图上点击来搜索地球的卫星图像。例如，您可以输入“热带雨林”或“有城市的海岸线”，系统就会找到地球上与您描述相符的位置。然后，它会在世界地图上可视化这些位置的卫星图像嵌入和您的输入嵌入的相似度，并显示最相似的图像。您可以下载检索结果和最相似的图像。"
-INTRODUCTION_EN = "EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type \"tropical rainforest\" or \"coastline with a city,\" and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images."
+INTRODUCTION_EN = 'EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.'
 
-if DOWNLOAD_ENDPOINT == 'modelscope.cn':
-    introduction = INTRODUCTION_ZH + '<br>' + INTRODUCTION_EN
+if DOWNLOAD_ENDPOINT == "modelscope.cn":
+    introduction = INTRODUCTION_ZH + "<br>" + INTRODUCTION_EN
 else:
     introduction = INTRODUCTION_EN
+
 
 def get_active_model(model_name):
     """Wrapper for backward compatibility."""
@@ -65,8 +66,6 @@ def _handle_map_click(evt, df_vis):
 
 def _download_image_by_location(lat, lon, pid, model_name):
     return download_image_by_location(lat, lon, pid, model_name, models)
-
-
 
 
 # Gradio Blocks Interface
@@ -134,7 +133,9 @@ div.form:has(.filter-checkbox) {
                         examples=[
                             ["a satellite image of a river around a city"],
                             ["a satellite image of a rainforest"],
-                            ["a satellite image with rectangular cattle pasture clearings, dust-toned access roads, and remaining rainforest blocks"],
+                            [
+                                "a satellite image with rectangular cattle pasture clearings, dust-toned access roads, and remaining rainforest blocks"
+                            ],
                             ["a satellite image of a slum"],
                             ["a satellite image of a glacier"],
                             ["a satellite image of snow covered mountains"],
@@ -147,7 +148,9 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"], value="Clay", label="Model"
+                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"],
+                        value="Clay",
+                        label="Model",
                     )
 
                     gr.Markdown(
@@ -339,9 +342,15 @@ div.form:has(.filter-checkbox) {
         """Wrapper for map click that passes map_data_state."""
         return _handle_map_click(evt, state_data)
 
-    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status])
-    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status])
-    plot_map.select(fn=_map_click_handler, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status])
+    plot_map.select(
+        fn=_map_click_handler, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status]
+    )
+    plot_map.select(
+        fn=_map_click_handler, inputs=[map_data_state], outputs=[lat_input, lon_input, loc_pid, loc_click_status]
+    )
+    plot_map.select(
+        fn=_map_click_handler, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status]
+    )
 
     # Download Image by Geolocation
     def _download_and_mark_source(lat, lon, pid, model_name):
@@ -440,7 +449,17 @@ div.form:has(.filter-checkbox) {
         )
         yield from _search_mixed(
             model_manager,
-            query_text, query_image, lat, lon, w_text, w_image, w_location, threshold, model_name, fo, multiband_data
+            query_text,
+            query_image,
+            lat,
+            lon,
+            w_text,
+            w_image,
+            w_location,
+            threshold,
+            model_name,
+            fo,
+            multiband_data,
         )
 
     # Search Event (Text)

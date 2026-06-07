@@ -56,7 +56,9 @@ def apply_filters(df_embed, probs, filtered_indices, top_indices, filter_options
             g_lon_min, g_lon_max = float(geo_opts.get("lon_min", -180)), float(geo_opts.get("lon_max", 180))
             geo_mask = (lats >= g_lat_min) & (lats <= g_lat_max) & (lons >= g_lon_min) & (lons <= g_lon_max)
             global_mask &= geo_mask
-            print(f"Geo filter: {geo_mask.sum()}/{len(geo_mask)} records in box [{g_lat_min},{g_lat_max}] x [{g_lon_min},{g_lon_max}]")
+            print(
+                f"Geo filter: {geo_mask.sum()}/{len(geo_mask)} records in box [{g_lat_min},{g_lat_max}] x [{g_lon_min},{g_lon_max}]"
+            )
         except Exception as e:
             print(f"Geo filter error, skipping: {e}")
 

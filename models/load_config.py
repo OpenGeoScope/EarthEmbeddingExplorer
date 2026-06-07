@@ -4,6 +4,8 @@ import yaml
 
 if os.getenv("DOWNLOAD_ENDPOINT", "") == "modelscope.ai":
     os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
+
+
 def load_config(config_path=None):
     """Load configuration from config.yaml or fall back to legacy configs."""
     if config_path is None:
@@ -34,14 +36,15 @@ def resolve_path(path_str):
     if path_str.startswith("hf://"):
         try:
             from huggingface_hub import hf_hub_download
+
             # Strip leading slashes after protocol
-            rest = path_str[5:].lstrip('/')
-            parts = rest.split('/', 2)
+            rest = path_str[5:].lstrip("/")
+            parts = rest.split("/", 2)
             if len(parts) >= 3:
                 repo_id = f"{parts[0]}/{parts[1]}"
                 filename = parts[2]
                 print(f"Downloading from HuggingFace: {repo_id}/{filename}")
-                return hf_hub_download(repo_id, filename, repo_type='dataset')
+                return hf_hub_download(repo_id, filename, repo_type="dataset")
             else:
                 print(f"Invalid HuggingFace path format: {path_str}")
         except Exception as e:
@@ -51,14 +54,15 @@ def resolve_path(path_str):
     elif path_str.startswith("ms://"):
         try:
             from modelscope.hub.snapshot_download import snapshot_download
+
             # Strip leading slashes after protocol
-            rest = path_str[5:].lstrip('/')
-            parts = rest.split('/', 2)
+            rest = path_str[5:].lstrip("/")
+            parts = rest.split("/", 2)
             if len(parts) >= 3:
                 repo_id = f"{parts[0]}/{parts[1]}"
                 filename = parts[2]
                 print(f"Downloading from ModelScope: {repo_id}/{filename}")
-                cache_dir = snapshot_download(repo_id, repo_type='dataset', allow_file_pattern=filename)
+                cache_dir = snapshot_download(repo_id, repo_type="dataset", allow_file_pattern=filename)
                 downloaded_file = os.path.join(cache_dir, filename)
                 if os.path.exists(downloaded_file):
                     return downloaded_file

@@ -137,7 +137,7 @@ def download_image_by_location(lat, lon, pid, model_name, models):
             pid = df.loc[nearest_idx, "product_id"]
 
         # For multi-spectral models: download multiband for encoding; thumbnail for display
-        needs_multiband = getattr(model, 'requires_multiband', False)
+        needs_multiband = getattr(model, "requires_multiband", False)
         if needs_multiband:
             result = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="multiband")
             img_384, _, multiband_array = result
