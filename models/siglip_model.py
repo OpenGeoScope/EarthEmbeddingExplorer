@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from open_clip.tokenizer import HFTokenizer
 from PIL import Image
 
+
 class SigLIPModel:
     """
     SigLIP model wrapper for Sentinel-2 RGB data embedding and search.
@@ -19,12 +20,14 @@ class SigLIPModel:
     - Searching similar images using cosine similarity
     """
 
-    def __init__(self,
-                 ckpt_path=None,
-                 model_name="ViT-SO400M-14-SigLIP-384",
-                 tokenizer_path=None,
-                 embedding_path=None,
-                 device=None):
+    def __init__(
+        self,
+        ckpt_path=None,
+        model_name="ViT-SO400M-14-SigLIP-384",
+        tokenizer_path=None,
+        embedding_path=None,
+        device=None,
+    ):
         """
         Initialize the SigLIPModel.
 
@@ -49,7 +52,7 @@ class SigLIPModel:
         self.image_embeddings = None
 
         # Define the RGB bands for Sentinel-2 (B04, B03, B02)
-        self.bands = ['B04', 'B03', 'B02']
+        self.bands = ["B04", "B03", "B02"]
         self.size = (384, 384)
 
         self.load_model()
@@ -67,6 +70,7 @@ class SigLIPModel:
         elif endpoint in ("huggingface", "hf"):
             print("Loading SigLIP model from HuggingFace...")
             from huggingface_hub import snapshot_download
+
             cache_dir = snapshot_download(repo_id="timm/ViT-SO400M-14-SigLIP-384")
             self.tokenizer_path = cache_dir
             self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
@@ -74,12 +78,14 @@ class SigLIPModel:
             print("Loading SigLIP model from ModelScope (modelscope.ai)...")
             os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(repo_id="VoyagerX/ViT-SO400M-14-SigLIP-384")
             self.tokenizer_path = cache_dir
             self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
         else:
             print("Loading SigLIP model from ModelScope (modelscope.cn)...")
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(repo_id="timm/ViT-SO400M-14-SigLIP-384")
             self.tokenizer_path = cache_dir
             self.ckpt_path = os.path.join(cache_dir, "open_clip_pytorch_model.bin")
@@ -87,8 +93,7 @@ class SigLIPModel:
         try:
             self.tokenizer = HFTokenizer(self.tokenizer_path)
             self.model, _, self.preprocess = open_clip.create_model_and_transforms(
-                self.model_name,
-                pretrained=self.ckpt_path
+                self.model_name, pretrained=self.ckpt_path
             )
             self.model = self.model.to(self.device)
             self.model.eval()
@@ -108,7 +113,7 @@ class SigLIPModel:
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
             # Pre-compute image embeddings tensor
-            image_embeddings_np = np.stack(self.df_embed['embedding'].values)
+            image_embeddings_np = np.stack(self.df_embed["embedding"].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"SigLIP Data loaded: {len(self.df_embed)} records")
@@ -132,7 +137,7 @@ class SigLIPModel:
 
         with torch.no_grad():
             if self.device == "cuda":
-                with torch.amp.autocast('cuda'):
+                with torch.amp.autocast("cuda"):
                     text_features = self.model.encode_text(text_tokens)
             else:
                 text_features = self.model.encode_text(text_tokens)
@@ -167,7 +172,7 @@ class SigLIPModel:
                 img_np = (img_np * 255).astype(np.uint8)
             else:
                 img_np = img_np.astype(np.uint8)
-            pil_images.append(Image.fromarray(img_np, mode='RGB'))
+            pil_images.append(Image.fromarray(img_np, mode="RGB"))
         return pil_images
 
     def encode_image(self, image, preprocess_s2=True, normalize=True):
@@ -200,7 +205,7 @@ class SigLIPModel:
             image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
             with torch.no_grad():
                 if self.device == "cuda":
-                    with torch.amp.autocast('cuda'):
+                    with torch.amp.autocast("cuda"):
                         image_features = self.model.encode_image(image_tensors)
                 else:
                     image_features = self.model.encode_image(image_tensors)
@@ -219,11 +224,11 @@ class SigLIPModel:
                     img = (img * 255).astype(np.uint8)
                 else:
                     img = img.astype(np.uint8)
-                pil_images.append(Image.fromarray(img, mode='RGB'))
+                pil_images.append(Image.fromarray(img, mode="RGB"))
             image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
             with torch.no_grad():
                 if self.device == "cuda":
-                    with torch.amp.autocast('cuda'):
+                    with torch.amp.autocast("cuda"):
                         image_features = self.model.encode_image(image_tensors)
                 else:
                     image_features = self.model.encode_image(image_tensors)
@@ -240,7 +245,7 @@ class SigLIPModel:
 
         with torch.no_grad():
             if self.device == "cuda":
-                with torch.amp.autocast('cuda'):
+                with torch.amp.autocast("cuda"):
                     image_features = self.model.encode_image(image_tensor)
             else:
                 image_features = self.model.encode_image(image_tensor)
@@ -304,17 +309,14 @@ class SigLIPModel:
         similarity = (self.image_embeddings @ query_features.T).squeeze()
         probs = similarity.detach().cpu().numpy()
 
+        sorted_indices = np.argsort(probs)[::-1]
         if top_percent is not None:
-            k = int(len(probs) * top_percent)
-            if k < 1:
-                k = 1
-            threshold = np.partition(probs, -k)[-k]
-
-        # Filter by threshold
-        mask = probs >= threshold
-        filtered_indices = np.where(mask)[0]
-
-        # Get top k
-        top_indices = np.argsort(probs)[-top_k:][::-1]
+            k = max(1, int(len(probs) * top_percent))
+            filtered_indices = sorted_indices[:k]
+            top_indices = filtered_indices
+        else:
+            mask = probs >= threshold
+            filtered_indices = sorted_indices[mask[sorted_indices]]
+            top_indices = filtered_indices[:top_k]
 
         return probs, filtered_indices, top_indices

@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
+
 class DINOv2Model:
     """
     DINOv2 model wrapper for Sentinel-2 RGB data embedding and search.
@@ -21,11 +22,7 @@ class DINOv2Model:
     and generating feature embeddings using the DINOv2 architecture.
     """
 
-    def __init__(self,
-                 ckpt_path=None,
-                 model_name="facebook/dinov2-large",
-                 embedding_path=None,
-                 device=None):
+    def __init__(self, ckpt_path=None, model_name="facebook/dinov2-large", embedding_path=None, device=None):
         """
         Initialize the DINOv2Model.
 
@@ -47,13 +44,12 @@ class DINOv2Model:
         self.image_embeddings = None
 
         # Define the RGB bands for Sentinel-2 (B04, B03, B02)
-        self.bands = ['B04', 'B03', 'B02']
+        self.bands = ["B04", "B03", "B02"]
         self.size = None
 
         self.load_model()
         if self.embedding_path is not None:
             self.load_embeddings()
-
 
     def load_model(self):
         """Load DINOv2 model and processor from local path or remote repository."""
@@ -69,7 +65,7 @@ class DINOv2Model:
             print(f"Loading DINOv2 model from ModelScope: {self.model_name}")
             load_source = self.model_name
         elif endpoint == "modelscope.ai":
-            print(f"Loading DINOv2 model from ModelScope: VoyagerX/dinov2-large")
+            print("Loading DINOv2 model from ModelScope: VoyagerX/dinov2-large")
             load_source = "VoyagerX/dinov2-large"
             os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
         else:
@@ -82,6 +78,7 @@ class DINOv2Model:
                 self.model = AutoModel.from_pretrained(load_source)
             else:
                 import modelscope
+
                 self.processor = modelscope.AutoImageProcessor.from_pretrained(load_source)
                 self.model = modelscope.AutoModel.from_pretrained(load_source)
 
@@ -89,11 +86,11 @@ class DINOv2Model:
             self.model.eval()
 
             # Extract the input size from the processor settings
-            if hasattr(self.processor, 'crop_size'):
-                self.size = (self.processor.crop_size['height'], self.processor.crop_size['width'])
-            elif hasattr(self.processor, 'size'):
+            if hasattr(self.processor, "crop_size"):
+                self.size = (self.processor.crop_size["height"], self.processor.crop_size["width"])
+            elif hasattr(self.processor, "size"):
                 if isinstance(self.processor.size, dict):
-                    self.size = (self.processor.size.get('height', 224), self.processor.size.get('width', 224))
+                    self.size = (self.processor.size.get("height", 224), self.processor.size.get("width", 224))
                 else:
                     self.size = (self.processor.size, self.processor.size)
             else:
@@ -114,7 +111,7 @@ class DINOv2Model:
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
             # Pre-compute image embeddings tensor
-            image_embeddings_np = np.stack(self.df_embed['embedding'].values)
+            image_embeddings_np = np.stack(self.df_embed["embedding"].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"DINOv2 Data loaded: {len(self.df_embed)} records")
@@ -172,9 +169,9 @@ class DINOv2Model:
                         if img.shape[0] == 3:  # [C, H, W]
                             img = img.permute(1, 2, 0)
                         img_np = (img.detach().cpu().numpy() * 255).astype(np.uint8)
-                        img_pil = Image.fromarray(img_np, mode='RGB')
+                        img_pil = Image.fromarray(img_np, mode="RGB")
                         inputs = self.processor(images=img_pil, return_tensors="pt")
-                        pixel_values = inputs['pixel_values'].to(self.device)
+                        pixel_values = inputs["pixel_values"].to(self.device)
                         with torch.no_grad():
                             outputs = self.model(pixel_values)
                             feat = outputs.last_hidden_state.mean(dim=1)
@@ -185,13 +182,13 @@ class DINOv2Model:
                     if image.shape[0] == 3:  # [C, H, W]
                         image = image.permute(1, 2, 0)
                     image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
-                    image = Image.fromarray(image_np, mode='RGB')
+                    image = Image.fromarray(image_np, mode="RGB")
             else:
                 # Pass tensor directly to processor
                 if image.dim() == 3:
                     image = image.unsqueeze(0)
                 inputs = self.processor(images=image, return_tensors="pt")
-                pixel_values = inputs['pixel_values'].to(self.device)
+                pixel_values = inputs["pixel_values"].to(self.device)
                 with torch.no_grad():
                     outputs = self.model(pixel_values)
                     image_features = outputs.last_hidden_state.mean(dim=1)
@@ -211,9 +208,9 @@ class DINOv2Model:
                             img = (img * 255).astype(np.uint8)
                         else:
                             img = img.astype(np.uint8)
-                        img_pil = Image.fromarray(img, mode='RGB')
+                        img_pil = Image.fromarray(img, mode="RGB")
                         inputs = self.processor(images=img_pil, return_tensors="pt")
-                        pixel_values = inputs['pixel_values'].to(self.device)
+                        pixel_values = inputs["pixel_values"].to(self.device)
                         with torch.no_grad():
                             outputs = self.model(pixel_values)
                             feat = outputs.last_hidden_state.mean(dim=1)
@@ -225,13 +222,13 @@ class DINOv2Model:
                         image = (image * 255).astype(np.uint8)
                     else:
                         image = image.astype(np.uint8)
-                    image = Image.fromarray(image, mode='RGB')
+                    image = Image.fromarray(image, mode="RGB")
             else:
                 image = torch.from_numpy(image)
                 if image.dim() == 3:
                     image = image.unsqueeze(0)
                 inputs = self.processor(images=image, return_tensors="pt")
-                pixel_values = inputs['pixel_values'].to(self.device)
+                pixel_values = inputs["pixel_values"].to(self.device)
                 with torch.no_grad():
                     outputs = self.model(pixel_values)
                     image_features = outputs.last_hidden_state.mean(dim=1)
@@ -245,7 +242,7 @@ class DINOv2Model:
 
         # Process image
         inputs = self.processor(images=image, return_tensors="pt")
-        pixel_values = inputs['pixel_values'].to(self.device)
+        pixel_values = inputs["pixel_values"].to(self.device)
 
         # Generate embeddings
         with torch.no_grad():
@@ -318,19 +315,15 @@ class DINOv2Model:
             similarity = (self.image_embeddings @ query_features.T).squeeze()
             similarities = similarity.detach().cpu().numpy()
 
-            # Handle top_percent
+            sorted_indices = np.argsort(similarities)[::-1]
             if top_percent is not None:
-                k = int(len(similarities) * top_percent)
-                if k < 1:
-                    k = 1
-                threshold = np.partition(similarities, -k)[-k]
-
-            # Filter by threshold
-            mask = similarities >= threshold
-            filtered_indices = np.where(mask)[0]
-
-            # Get top k
-            top_indices = np.argsort(similarities)[-top_k:][::-1]
+                k = max(1, int(len(similarities) * top_percent))
+                filtered_indices = sorted_indices[:k]
+                top_indices = filtered_indices
+            else:
+                mask = similarities >= threshold
+                filtered_indices = sorted_indices[mask[sorted_indices]]
+                top_indices = filtered_indices[:top_k]
 
             return similarities, filtered_indices, top_indices
 

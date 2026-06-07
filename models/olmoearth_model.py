@@ -4,7 +4,6 @@ import numpy as np
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
-from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.nn.flexi_vit import PoolingType
 from PIL import Image
 
 
@@ -22,7 +21,6 @@ class OlmoEarthModel:
     adapts it for single-timestep (T=1) Sentinel-2 L2A inputs to be compatible
     with the MajorTOM Core-S2L2A-249k dataset.
     """
-
 
     def __init__(
         self,
@@ -63,7 +61,7 @@ class OlmoEarthModel:
     def load_model(self):
         """Load OlmoEarth model respecting DOWNLOAD_ENDPOINT."""
         # OlmoEarth requires torch >= 2.8 due to custom C extensions in olmoearth-pretrain-minimal
-        torch_version = torch.__version__.split('+')[0]
+        torch_version = torch.__version__.split("+")[0]
         if torch_version < "2.8":
             print(f"OlmoEarth requires torch>=2.8, found {torch.__version__}. Skipping model load.")
             return
@@ -89,8 +87,7 @@ class OlmoEarthModel:
 
                 if self.model_size not in size_to_id:
                     raise ValueError(
-                        f"Unknown OlmoEarth model_size: {self.model_size}. "
-                        f"Choose from {list(size_to_id.keys())}"
+                        f"Unknown OlmoEarth model_size: {self.model_size}. Choose from {list(size_to_id.keys())}"
                     )
 
                 model_id = size_to_id[self.model_size]
@@ -113,8 +110,9 @@ class OlmoEarthModel:
             else:
                 print(f"Loading OlmoEarth {self.model_size} from ModelScope (modelscope.cn)...")
                 repo_id = f"allenai/OlmoEarth-v1-{self.model_size.capitalize()}"
-            
+
             from modelscope.hub.snapshot_download import snapshot_download
+
             model_path = snapshot_download(repo_id=repo_id)
             print(f"OlmoEarth weights cached at: {model_path}")
 
@@ -145,9 +143,7 @@ class OlmoEarthModel:
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
             image_embeddings_np = np.stack(self.df_embed["embedding"].values)
-            self.image_embeddings = (
-                torch.from_numpy(image_embeddings_np).to(self.device).float()
-            )
+            self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             # NOTE: Official tutorial does NOT L2-normalize MEAN-pooled embeddings.
             # Keeping raw dot-product for search consistency with allenai/olmoearth_ml4rs_tutorial.
             print(f"OlmoEarth Data loaded: {len(self.df_embed)} records")
@@ -174,9 +170,7 @@ class OlmoEarthModel:
         # Convert to (N, H, W, C) numpy for normalizer
         np_tensor = tensor.permute(0, 2, 3, 1).cpu().numpy()
         # Add time dimension: (N, H, W, T=1, C)
-        np_tensor = np_tensor.reshape(
-            np_tensor.shape[0], np_tensor.shape[1], np_tensor.shape[2], 1, np_tensor.shape[3]
-        )
+        np_tensor = np_tensor.reshape(np_tensor.shape[0], np_tensor.shape[1], np_tensor.shape[2], 1, np_tensor.shape[3])
 
         # Normalize
         normalized = self.normalizer.normalize(self._modality, np_tensor)
@@ -207,9 +201,7 @@ class OlmoEarthModel:
         return MaskedOlmoEarthSample(
             timestamps=timestamps,
             sentinel2_l2a=normalized_tensor.to(self.device),
-            sentinel2_l2a_mask=torch.zeros(
-                batch_size, h, w, 1, num_bandsets, dtype=torch.long, device=self.device
-            ),
+            sentinel2_l2a_mask=torch.zeros(batch_size, h, w, 1, num_bandsets, dtype=torch.long, device=self.device),
         )
 
     def encode_image(self, image, preprocess_s2=True, normalize=True):
@@ -237,18 +229,14 @@ class OlmoEarthModel:
                     image = image.unsqueeze(0)
                 # Resize to model input size if needed
                 if image.shape[-2:] != self.size:
-                    image = F.interpolate(
-                        image.float(), size=self.size, mode="bilinear", align_corners=False
-                    )
+                    image = F.interpolate(image.float(), size=self.size, mode="bilinear", align_corners=False)
                 normalized = self._prepare_input(image)
                 sample = self._create_sample(normalized)
+                from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.nn.flexi_vit import PoolingType
+
                 with torch.no_grad():
-                    output = self.model.encoder(
-                        sample, patch_size=8, input_res=10, fast_pass=True
-                    )
-                embedding = output["tokens_and_masks"].pool_unmasked_tokens(
-                    pooling_type=PoolingType.MEAN
-                )
+                    output = self.model.encoder(sample, patch_size=8, input_res=10, fast_pass=True)
+                embedding = output["tokens_and_masks"].pool_unmasked_tokens(pooling_type=PoolingType.MEAN)
                 return embedding
 
             elif isinstance(image, np.ndarray):
@@ -273,9 +261,7 @@ class OlmoEarthModel:
                 # _prepare_input will reorder to OlmoEarth format.
                 # MajorTOM: [B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12]
                 # RGB maps to B04(R), B03(G), B02(B)
-                input_tensor = np.zeros(
-                    (12, self.size[0], self.size[1]), dtype=np.float32
-                )
+                input_tensor = np.zeros((12, self.size[0], self.size[1]), dtype=np.float32)
                 input_tensor[1] = img_np[:, :, 2]  # Blue -> B02 (MajorTOM index 1)
                 input_tensor[2] = img_np[:, :, 1]  # Green -> B03 (MajorTOM index 2)
                 input_tensor[3] = img_np[:, :, 0]  # Red -> B04 (MajorTOM index 3)
@@ -347,15 +333,15 @@ class OlmoEarthModel:
             similarity = (image_embeddings_norm @ query_features_norm.T).squeeze()
             similarities = similarity.detach().cpu().numpy()
 
+            sorted_indices = np.argsort(similarities)[::-1]
             if top_percent is not None:
-                k = int(len(similarities) * top_percent)
-                if k < 1:
-                    k = 1
-                threshold = np.partition(similarities, -k)[-k]
-
-            mask = similarities >= threshold
-            filtered_indices = np.where(mask)[0]
-            top_indices = np.argsort(similarities)[-top_k:][::-1]
+                k = max(1, int(len(similarities) * top_percent))
+                filtered_indices = sorted_indices[:k]
+                top_indices = filtered_indices
+            else:
+                mask = similarities >= threshold
+                filtered_indices = sorted_indices[mask[sorted_indices]]
+                top_indices = filtered_indices[:top_k]
 
             return similarities, filtered_indices, top_indices
 

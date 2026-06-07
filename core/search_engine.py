@@ -13,6 +13,8 @@ from visualize import format_results_for_gallery, plot_geographic_distribution, 
 
 from .filters import apply_filters
 
+DISPLAY_TOP_K = 5
+
 
 def _get_model_and_error(model_manager, model_name):
     """Helper to get model from ModelManager."""
@@ -91,8 +93,8 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
             gr.update(value=geo_dist_map, visible=True),
         )
         t0 = time.time()
-        top_indices = top_indices[:10]
-        results = _fetch_top_k_images(top_indices, probs, df_embed, query_text=query)
+        display_indices = top_indices[:DISPLAY_TOP_K]
+        results = _fetch_top_k_images(display_indices, probs, df_embed, query_text=query)
         timings["Download"] = time.time() - t0
 
         # 4. Visualize - keep geo_dist_map visible
@@ -155,7 +157,7 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         yield None, None, "Encoding image...", None, None, None, None
         t0 = time.time()
         # Determine if the model needs multi-spectral input
-        needs_multiband = getattr(model, 'requires_multiband', False)
+        needs_multiband = getattr(model, "requires_multiband", False)
 
         if needs_multiband:
             if multiband_data is not None:
@@ -233,8 +235,8 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
             gr.update(value=geo_dist_map, visible=True),
         )
         t0 = time.time()
-        top_indices = top_indices[:6]
-        results = _fetch_top_k_images(top_indices, probs, df_embed, query_text="Image Query")
+        display_indices = top_indices[:DISPLAY_TOP_K]
+        results = _fetch_top_k_images(display_indices, probs, df_embed, query_text="Image Query")
         timings["Download"] = time.time() - t0
 
         # 4. Visualize - keep geo_dist_map visible
@@ -359,8 +361,8 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
             gr.update(value=geo_dist_map, visible=True),
         )
         t0 = time.time()
-        top_6_indices = top_indices[:6]
-        results = _fetch_top_k_images(top_6_indices, probs, df_embed, query_text=f"Loc: {lat},{lon}")
+        display_indices = top_indices[:DISPLAY_TOP_K]
+        results = _fetch_top_k_images(display_indices, probs, df_embed, query_text=f"Loc: {lat},{lon}")
 
         # Get query tile
         query_tile = None
@@ -617,15 +619,12 @@ def search_mixed(
         yield None, None, status_msg + "Retrieving similar images...", None, None, None, None
 
         t0 = time.time()
-        # Apply threshold
+        # Apply top-percentage threshold for the map candidate pool.
         top_percent = threshold / 1000.0
-        threshold_value = np.percentile(final_scores, 100 * (1 - top_percent))
-        filtered_mask = final_scores >= threshold_value
-        filtered_indices = np.where(filtered_mask)[0]
-
-        # Sort by score descending
         sorted_order = np.argsort(final_scores)[::-1]
-        top_indices = sorted_order[: max(5, int(len(final_scores) * top_percent))]
+        k = max(1, int(len(final_scores) * top_percent))
+        filtered_indices = sorted_order[:k]
+        top_indices = filtered_indices
         timings["Retrieval"] = time.time() - t0
 
         # Apply post-search filters
@@ -666,8 +665,8 @@ def search_mixed(
             gr.update(value=geo_dist_map, visible=True),
         )
         t0 = time.time()
-        top_indices = top_indices[:5]
-        results = _fetch_top_k_images(top_indices, final_scores, df_ref, query_text=query_info)
+        display_indices = top_indices[:DISPLAY_TOP_K]
+        results = _fetch_top_k_images(display_indices, final_scores, df_ref, query_text=query_info)
         timings["Download"] = time.time() - t0
 
         # --- Visualize ---
@@ -745,7 +744,9 @@ def _fetch_top_k_images(top_indices, probs, df_embed, query_text=None):
             row = df_embed.iloc[idx]
             pid = row["product_id"]
 
-            future = executor.submit(download_and_process_image, pid, df_source=df_embed, verbose=False, mode="thumbnail")
+            future = executor.submit(
+                download_and_process_image, pid, df_source=df_embed, verbose=False, mode="thumbnail"
+            )
             future_to_idx[future] = idx
 
         for future in as_completed(future_to_idx):
@@ -833,4 +834,3 @@ def _format_results_to_text(results):
         lines.append("")
 
     return "\n".join(lines)
-

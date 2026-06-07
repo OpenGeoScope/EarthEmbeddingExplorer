@@ -33,10 +33,7 @@ class ClayModel:
     - Searching similar images using cosine similarity
     """
 
-    def __init__(self,
-                 ckpt_path=None,
-                 embedding_path=None,
-                 device=None):
+    def __init__(self, ckpt_path=None, embedding_path=None, device=None):
         """
         Initialize the ClayModel.
 
@@ -57,20 +54,17 @@ class ClayModel:
         self.image_embeddings = None
 
         # Clay Sentinel-2 L2A bands (10 bands)
-        self.bands = [
-            'B02', 'B03', 'B04', 'B05', 'B06', 'B07',
-            'B08', 'B8A', 'B11', 'B12'
-        ]
+        self.bands = ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B11", "B12"]
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.size = (384, 384)
 
         # Clay metadata for Sentinel-2 normalization
         self.clay_mean = np.array(
-            [1105., 1355., 1552., 1887., 2422., 2630., 2743., 2785., 2388., 1835.],
+            [1105.0, 1355.0, 1552.0, 1887.0, 2422.0, 2630.0, 2743.0, 2785.0, 2388.0, 1835.0],
             dtype=np.float32,
         )
         self.clay_std = np.array(
-            [1809., 1757., 1888., 1870., 1732., 1697., 1742., 1648., 1470., 1379.],
+            [1809.0, 1757.0, 1888.0, 1870.0, 1732.0, 1697.0, 1742.0, 1648.0, 1470.0, 1379.0],
             dtype=np.float32,
         )
         self.clay_waves = torch.tensor(
@@ -92,17 +86,20 @@ class ClayModel:
         elif endpoint in ("huggingface"):
             print("Loading Clay model from HuggingFace...")
             from huggingface_hub import snapshot_download
+
             cache_dir = snapshot_download(repo_id="made-with-clay/Clay")
             self.ckpt_path = os.path.join(cache_dir, "v1.5", "clay-v1.5.ckpt")
         elif endpoint in ("modelscope.ai"):
             print("Loading Clay model from ModelScope (modelscope.ai)...")
             os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(repo_id="VoyagerX/Clay")
             self.ckpt_path = os.path.join(cache_dir, "v1.5", "clay-v1.5.ckpt")
         else:
             print("Loading Clay model from ModelScope (modelscope.cn)...")
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(repo_id="VoyagerX/Clay")
             self.ckpt_path = os.path.join(cache_dir, "v1.5", "clay-v1.5.ckpt")
 
@@ -121,6 +118,7 @@ class ClayModel:
         except Exception as e:
             print(f"Error loading Clay model: {e}")
             import traceback
+
             traceback.print_exc()
 
     def load_embeddings(self):
@@ -133,7 +131,7 @@ class ClayModel:
 
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
-            image_embeddings_np = np.stack(self.df_embed['embedding'].values)
+            image_embeddings_np = np.stack(self.df_embed["embedding"].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"Clay Data loaded: {len(self.df_embed)} records")
@@ -196,13 +194,13 @@ class ClayModel:
         Returns:
             dict: Clay datacube dictionary.
         """
-        B = image_tensor.shape[0]
+        batch_size = image_tensor.shape[0]
         device = image_tensor.device
 
         if latlon is None:
-            latlon = torch.zeros(B, 4, dtype=torch.float32, device=device)
+            latlon = torch.zeros(batch_size, 4, dtype=torch.float32, device=device)
         if time is None:
-            time = torch.zeros(B, 4, dtype=torch.float32, device=device)
+            time = torch.zeros(batch_size, 4, dtype=torch.float32, device=device)
 
         waves = self.clay_waves.to(device)
         gsd = self.clay_gsd.to(device)
@@ -243,7 +241,7 @@ class ClayModel:
                     image = image.unsqueeze(0)
                 # Resize to Clay's expected input size if needed
                 if image.shape[2:] != self.size:
-                    image = F.interpolate(image.float(), size=self.size, mode='bicubic', align_corners=False)
+                    image = F.interpolate(image.float(), size=self.size, mode="bicubic", align_corners=False)
                 if preprocess_s2:
                     image = self.preprocess_s2(image)
                 datacube = self._build_datacube(image, latlon=latlon, time=time)
@@ -261,7 +259,9 @@ class ClayModel:
                 image_tensor = torch.from_numpy(image).to(self.device)
                 # Resize to Clay's expected input size if needed
                 if image_tensor.shape[2:] != self.size:
-                    image_tensor = F.interpolate(image_tensor.float(), size=self.size, mode='bicubic', align_corners=False)
+                    image_tensor = F.interpolate(
+                        image_tensor.float(), size=self.size, mode="bicubic", align_corners=False
+                    )
                 if preprocess_s2:
                     image_tensor = self.preprocess_s2(image_tensor)
                 datacube = self._build_datacube(image_tensor, latlon=latlon, time=time)
@@ -296,6 +296,7 @@ class ClayModel:
         except Exception as e:
             print(f"Error encoding image in Clay: {e}")
             import traceback
+
             traceback.print_exc()
             return None
 
@@ -352,15 +353,14 @@ class ClayModel:
 
         probs = (self.image_embeddings @ query_features.T).detach().cpu().numpy().flatten()
 
+        sorted_indices = np.argsort(probs)[::-1]
         if top_percent is not None:
-            k = int(len(probs) * top_percent)
-            if k < 1:
-                k = 1
-            threshold = np.partition(probs, -k)[-k]
-
-        mask = probs >= threshold
-        filtered_indices = np.where(mask)[0]
-
-        top_indices = np.argsort(probs)[-top_k:][::-1]
+            k = max(1, int(len(probs) * top_percent))
+            filtered_indices = sorted_indices[:k]
+            top_indices = filtered_indices
+        else:
+            mask = probs >= threshold
+            filtered_indices = sorted_indices[mask[sorted_indices]]
+            top_indices = filtered_indices[:top_k]
 
         return probs, filtered_indices, top_indices

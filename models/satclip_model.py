@@ -12,6 +12,7 @@ from PIL import Image
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     from models.SatCLIP.satclip.load import get_satclip
+
     print("Successfully imported models.SatCLIP.satclip.load.get_satclip.")
 
 
@@ -26,10 +27,7 @@ class SatCLIPModel:
     - Searching similar images using cosine similarity
     """
 
-    def __init__(self,
-                 ckpt_path=None,
-                 embedding_path=None,
-                 device=None):
+    def __init__(self, ckpt_path=None, embedding_path=None, device=None):
         """
         Initialize the SatCLIPModel.
 
@@ -48,10 +46,7 @@ class SatCLIPModel:
         self.image_embeddings = None
 
         # Define the 12 Sentinel-2 bands for SatCLIP input
-        self.bands = [
-            'B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07',
-            'B08', 'B8A', 'B09', 'B11', 'B12'
-        ]
+        self.bands = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B11", "B12"]
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.size = (224, 224)
 
@@ -72,22 +67,23 @@ class SatCLIPModel:
         elif endpoint in ("huggingface"):
             print("Loading SatCLIP model from HuggingFace...")
             from huggingface_hub import hf_hub_download
+
             self.ckpt_path = hf_hub_download("microsoft/SatCLIP-ViT16-L40", "satclip-vit16-l40.ckpt")
         elif endpoint in ("modelscope.ai"):
             print("Loading SatCLIP model from ModelScope (modelscope.ai)...")
             os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(
-                repo_id="VoyagerX/SatCLIP-ViT16-L40",
-                allow_file_pattern="satclip-vit16-l40.ckpt"
+                repo_id="VoyagerX/SatCLIP-ViT16-L40", allow_file_pattern="satclip-vit16-l40.ckpt"
             )
             self.ckpt_path = os.path.join(cache_dir, "satclip-vit16-l40.ckpt")
         else:
             print("Loading SatCLIP model from ModelScope (modelscope.cn)...")
             from modelscope.hub.snapshot_download import snapshot_download
+
             cache_dir = snapshot_download(
-                repo_id="microsoft/SatCLIP-ViT16-L40",
-                allow_file_pattern="satclip-vit16-l40.ckpt"
+                repo_id="microsoft/SatCLIP-ViT16-L40", allow_file_pattern="satclip-vit16-l40.ckpt"
             )
             self.ckpt_path = os.path.join(cache_dir, "satclip-vit16-l40.ckpt")
 
@@ -115,7 +111,7 @@ class SatCLIPModel:
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
             # Pre-compute image embeddings tensor
-            image_embeddings_np = np.stack(self.df_embed['embedding'].values)
+            image_embeddings_np = np.stack(self.df_embed["embedding"].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"SatCLIP Data loaded: {len(self.df_embed)} records")
@@ -176,12 +172,13 @@ class SatCLIPModel:
             torch.Tensor: Prepared tensor with shape [N, 13, 224, 224].
         """
         if tensor.shape[1] == 12:
-            zeros = torch.zeros(tensor.shape[0], 1, tensor.shape[2], tensor.shape[3],
-                                dtype=tensor.dtype, device=tensor.device)
+            zeros = torch.zeros(
+                tensor.shape[0], 1, tensor.shape[2], tensor.shape[3], dtype=tensor.dtype, device=tensor.device
+            )
             tensor = torch.cat([tensor[:, :10], zeros, tensor[:, 10:]], dim=1)
         elif tensor.shape[1] != 13:
             raise ValueError(f"Expected 12 or 13 channels, got {tensor.shape[1]}")
-        tensor = F.interpolate(tensor, size=(224, 224), mode='bicubic', align_corners=False)
+        tensor = F.interpolate(tensor, size=(224, 224), mode="bicubic", align_corners=False)
         return tensor
 
     def encode_image(self, image, preprocess_s2=True, normalize=True):
@@ -226,7 +223,7 @@ class SatCLIPModel:
                     _b10 = np.zeros((1, img.shape[1], img.shape[2]), dtype=img.dtype)
                     img_13 = np.concatenate([img[:10], _b10, img[10:]], axis=0)
                     input_tensor = torch.from_numpy(img_13).unsqueeze(0)
-                    input_tensor = F.interpolate(input_tensor, size=(224, 224), mode='bicubic', align_corners=False)
+                    input_tensor = F.interpolate(input_tensor, size=(224, 224), mode="bicubic", align_corners=False)
                     input_tensor = input_tensor.to(self.device)
                     with torch.no_grad():
                         img_feature = self.model.encode_image(input_tensor)
@@ -244,7 +241,7 @@ class SatCLIPModel:
                         _b10 = np.zeros((1, arr.shape[1], arr.shape[2]), dtype=arr.dtype)
                         arr_13 = np.concatenate([arr[:10], _b10, arr[10:]], axis=0)
                         t = torch.from_numpy(arr_13).unsqueeze(0)
-                        t = F.interpolate(t, size=(224, 224), mode='bicubic', align_corners=False)
+                        t = F.interpolate(t, size=(224, 224), mode="bicubic", align_corners=False)
                         t = t.to(self.device)
                         with torch.no_grad():
                             f = self.model.encode_image(t)
@@ -281,6 +278,7 @@ class SatCLIPModel:
         except Exception as e:
             print(f"Error encoding image in SatCLIP: {e}")
             import traceback
+
             traceback.print_exc()
             return None
 
@@ -339,17 +337,14 @@ class SatCLIPModel:
         # SatCLIP embeddings are normalized, so dot product is cosine similarity
         probs = (self.image_embeddings @ query_features.T).detach().cpu().numpy().flatten()
 
+        sorted_indices = np.argsort(probs)[::-1]
         if top_percent is not None:
-            k = int(len(probs) * top_percent)
-            if k < 1:
-                k = 1
-            threshold = np.partition(probs, -k)[-k]
-
-        # Filter by threshold
-        mask = probs >= threshold
-        filtered_indices = np.where(mask)[0]
-
-        # Get top k
-        top_indices = np.argsort(probs)[-top_k:][::-1]
+            k = max(1, int(len(probs) * top_percent))
+            filtered_indices = sorted_indices[:k]
+            top_indices = filtered_indices
+        else:
+            mask = probs >= threshold
+            filtered_indices = sorted_indices[mask[sorted_indices]]
+            top_indices = filtered_indices[:top_k]
 
         return probs, filtered_indices, top_indices

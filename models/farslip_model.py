@@ -10,12 +10,11 @@ from PIL import Image
 try:
     # FarSLIP must use its vendored open_clip fork (checkpoint format / model defs differ).
     from .FarSLIP.open_clip.factory import create_model_and_transforms, get_tokenizer
+
     _OPENCLIP_BACKEND = "vendored_farslip"
     print("Successfully imported FarSLIP vendored open_clip.")
 except ImportError as e:
-    raise ImportError(
-        "Failed to import FarSLIP vendored open_clip from 'models/FarSLIP/open_clip'. "
-    ) from e
+    raise ImportError("Failed to import FarSLIP vendored open_clip from 'models/FarSLIP/open_clip'. ") from e
 
 
 class FarSLIPModel:
@@ -29,11 +28,7 @@ class FarSLIPModel:
     - Searching similar images using cosine similarity
     """
 
-    def __init__(self,
-                 ckpt_path=None,
-                 model_name="ViT-B-16",
-                 embedding_path=None,
-                 device=None):
+    def __init__(self, ckpt_path=None, model_name="ViT-B-16", embedding_path=None, device=None):
         """
         Initialize the FarSLIPModel.
 
@@ -56,7 +51,7 @@ class FarSLIPModel:
         self.image_embeddings = None
 
         # Define the RGB bands for Sentinel-2 (B04, B03, B02)
-        self.bands = ['B04', 'B03', 'B02']
+        self.bands = ["B04", "B03", "B02"]
         self.size = (224, 224)
 
         self.load_model()
@@ -72,16 +67,15 @@ class FarSLIPModel:
         elif endpoint in ("huggingface", "hf"):
             print("Loading FarSLIP model from HuggingFace...")
             from huggingface_hub import hf_hub_download
+
             self.ckpt_path = hf_hub_download("ZhenShiL/FarSLIP", "FarSLIP2_ViT-B-16.pt")
         else:
             print(f"Loading FarSLIP model from {endpoint}...")
             if endpoint == "modelscope.ai":
                 os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             from modelscope.hub.snapshot_download import snapshot_download
-            cache_dir = snapshot_download(
-                repo_id='VoyagerX/FarSLIP',
-                allow_file_pattern="FarSLIP2_ViT-B-16.pt"
-            )
+
+            cache_dir = snapshot_download(repo_id="VoyagerX/FarSLIP", allow_file_pattern="FarSLIP2_ViT-B-16.pt")
             self.ckpt_path = os.path.join(cache_dir, "FarSLIP2_ViT-B-16.pt")
 
         try:
@@ -127,7 +121,7 @@ class FarSLIPModel:
 
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
 
-            image_embeddings_np = np.stack(self.df_embed['embedding'].values)
+            image_embeddings_np = np.stack(self.df_embed["embedding"].values)
             self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"FarSLIP Data loaded: {len(self.df_embed)} records")
@@ -151,7 +145,7 @@ class FarSLIPModel:
 
         with torch.no_grad():
             if self.device == "cuda":
-                with torch.amp.autocast('cuda'):
+                with torch.amp.autocast("cuda"):
                     text_features = self.model.encode_text(text_tokens)
             else:
                 text_features = self.model.encode_text(text_tokens)
@@ -186,7 +180,7 @@ class FarSLIPModel:
                 img_np = (img_np * 255).astype(np.uint8)
             else:
                 img_np = img_np.astype(np.uint8)
-            pil_images.append(Image.fromarray(img_np, mode='RGB'))
+            pil_images.append(Image.fromarray(img_np, mode="RGB"))
         return pil_images
 
     def encode_image(self, image, preprocess_s2=True, normalize=True):
@@ -219,7 +213,7 @@ class FarSLIPModel:
             image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
             with torch.no_grad():
                 if self.device == "cuda":
-                    with torch.amp.autocast('cuda'):
+                    with torch.amp.autocast("cuda"):
                         image_features = self.model.encode_image(image_tensors)
                 else:
                     image_features = self.model.encode_image(image_tensors)
@@ -238,11 +232,11 @@ class FarSLIPModel:
                     img = (img * 255).astype(np.uint8)
                 else:
                     img = img.astype(np.uint8)
-                pil_images.append(Image.fromarray(img, mode='RGB'))
+                pil_images.append(Image.fromarray(img, mode="RGB"))
             image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
             with torch.no_grad():
                 if self.device == "cuda":
-                    with torch.amp.autocast('cuda'):
+                    with torch.amp.autocast("cuda"):
                         image_features = self.model.encode_image(image_tensors)
                 else:
                     image_features = self.model.encode_image(image_tensors)
@@ -258,7 +252,7 @@ class FarSLIPModel:
 
         with torch.no_grad():
             if self.device == "cuda":
-                with torch.amp.autocast('cuda'):
+                with torch.amp.autocast("cuda"):
                     image_features = self.model.encode_image(image_tensor)
             else:
                 image_features = self.model.encode_image(image_tensor)
@@ -320,15 +314,14 @@ class FarSLIPModel:
         # Similarity calculation
         probs = (self.image_embeddings @ query_features.T).detach().cpu().numpy().flatten()
 
+        sorted_indices = np.argsort(probs)[::-1]
         if top_percent is not None:
-            k = int(len(probs) * top_percent)
-            if k < 1:
-                k = 1
-            threshold = np.partition(probs, -k)[-k]
-
-        mask = probs >= threshold
-        filtered_indices = np.where(mask)[0]
-
-        top_indices = np.argsort(probs)[-top_k:][::-1]
+            k = max(1, int(len(probs) * top_percent))
+            filtered_indices = sorted_indices[:k]
+            top_indices = filtered_indices
+        else:
+            mask = probs >= threshold
+            filtered_indices = sorted_indices[mask[sorted_indices]]
+            top_indices = filtered_indices[:top_k]
 
         return probs, filtered_indices, top_indices
