@@ -20,7 +20,6 @@ import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 import torch
 
@@ -28,12 +27,13 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_utils import download_and_process_image, reorder_multiband
-from models.load_config import load_and_process_config
 
 # Import all model classes
 from models.clay_model import ClayModel
 from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
+from models.load_config import load_and_process_config
+from models.olmoearth_model import OlmoEarthModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
 
@@ -41,6 +41,7 @@ MODEL_CLASS_MAP = {
     "Clay": ClayModel,
     "DINOv2": DINOv2Model,
     "FarSLIP": FarSLIPModel,
+    "OlmoEarth": OlmoEarthModel,
     "SatCLIP": SatCLIPModel,
     "SigLIP": SigLIPModel,
 }
@@ -52,14 +53,14 @@ DEFAULT_LON = -63.0
 
 # All supported models — no hard-coded spectral categories.
 # A model declares itself as multi-spectral via `requires_multiband = True`.
-ALL_MODELS = {"SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay"}
+ALL_MODELS = {"SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"}
 
 
 def find_nearest_product_id(model, lat, lon):
     """Find the nearest product_id to the given lat/lon in the model's embeddings."""
     df = model.df_embed
     if df is None or df.empty:
-        raise ValueError(f"Model has no embeddings loaded")
+        raise ValueError("Model has no embeddings loaded")
     lats = pd.to_numeric(df["centre_lat"], errors="coerce")
     lons = pd.to_numeric(df["centre_lon"], errors="coerce")
     dists = (lats - lat) ** 2 + (lons - lon) ** 2
@@ -76,22 +77,22 @@ def download_image_for_model(model, pid, df_embed):
     Multi-spectral models (declared via model.requires_multiband) receive the
     12-band numpy array; RGB models receive the PIL thumbnail.
     """
-    needs_multiband = getattr(model, 'requires_multiband', False)
+    needs_multiband = getattr(model, "requires_multiband", False)
     if needs_multiband:
         result = download_and_process_image(pid, df_source=df_embed, verbose=False, mode="multiband")
         img_384, _, multiband = result
         return img_384, multiband
     else:
-        img_384, img_full = download_and_process_image(pid, df_source=df_embed, verbose=False, mode="thumbnail")
+        img_384, _img_full = download_and_process_image(pid, df_source=df_embed, verbose=False, mode="thumbnail")
         return img_384, None
 
 
 def test_model_image_search(model_manager, model_name, lat, lon, model=None):
     """Test image search for a single model."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Testing model: {model_name}")
     print(f"Query location: ({lat}, {lon})")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if model is None and model_manager is not None:
         model, error = model_manager.get_model(model_name)
@@ -99,7 +100,7 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
             print(f"❌ Model not available: {error}")
             return False
     elif model is None:
-        print(f"❌ Model not provided")
+        print("❌ Model not provided")
         return False
 
     try:
@@ -118,7 +119,7 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
             print(f"📊 Multiband shape: {multiband.shape}, dtype: {multiband.dtype}")
 
         # 3. Encode image
-        needs_multiband = getattr(model, 'requires_multiband', False)
+        needs_multiband = getattr(model, "requires_multiband", False)
         if needs_multiband:
             # Reorder from generic 12-band MajorTOM format to model-specific bands
             multiband = reorder_multiband(multiband, model.bands)
@@ -128,28 +129,31 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
             image_features = model.encode_image(img_384)
 
         if image_features is None:
-            print(f"❌ Image encoding returned None")
+            print("❌ Image encoding returned None")
             return False
 
         print(f"🔢 Embedding shape: {image_features.shape}, device: {image_features.device}")
         print(f"🔢 Embedding norm: {image_features.norm().item():.4f}")
 
         # 4. Search
-        probs, filtered_indices, top_indices = model.search(image_features, top_k=5, top_percent=0.01)
+        probs, _filtered_indices, top_indices = model.search(image_features, top_k=5, top_percent=0.01)
+        display_indices = top_indices[:5]
 
-        if probs is None or len(top_indices) == 0:
-            print(f"❌ Search returned no results")
+        if probs is None or len(display_indices) == 0:
+            print("❌ Search returned no results")
             return False
 
-        print(f"🔍 Top-5 results:")
-        for i, idx in enumerate(top_indices):
+        print("🔍 Top-5 results:")
+        for i, idx in enumerate(display_indices):
             row = model.df_embed.iloc[idx]
-            print(f"   {i+1}. {row['product_id']} ({row['centre_lat']:.4f}, {row['centre_lon']:.4f}) score={probs[idx]:.4f}")
+            print(
+                f"   {i + 1}. {row['product_id']} ({row['centre_lat']:.4f}, {row['centre_lon']:.4f}) score={probs[idx]:.4f}"
+            )
 
         # 5. Verify results
         assert image_features.shape[-1] > 0, "Empty embedding"
-        assert len(top_indices) == 5, f"Expected 5 top results, got {len(top_indices)}"
-        assert probs[top_indices[0]] >= probs[top_indices[-1]], "Scores not sorted"
+        assert len(display_indices) == 5, f"Expected 5 top results, got {len(display_indices)}"
+        assert probs[display_indices[0]] >= probs[display_indices[-1]], "Scores not sorted"
 
         elapsed = time.time() - t0
         print(f"✅ {model_name} test passed in {elapsed:.2f}s")
@@ -157,6 +161,7 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         print(f"❌ {model_name} test failed: {e}")
         return False
@@ -177,6 +182,8 @@ def load_single_model(model_name, device="cuda"):
         kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
     if "embedding_path" in model_cfg:
         kwargs["embedding_path"] = model_cfg["embedding_path"]
+    if "model_size" in model_cfg:
+        kwargs["model_size"] = model_cfg["model_size"]
 
     print(f"Loading {model_name}...")
     model = model_cls(**kwargs)
@@ -185,9 +192,9 @@ def load_single_model(model_name, device="cuda"):
 
 def main():
     parser = argparse.ArgumentParser(description="Test image search for EarthEmbeddingExplorer models")
-    parser.add_argument("--model", type=str, default="all",
-                        choices=list(ALL_MODELS) + ["all"],
-                        help="Model to test (default: all)")
+    parser.add_argument(
+        "--model", type=str, default="all", choices=[*list(ALL_MODELS), "all"], help="Model to test (default: all)"
+    )
     parser.add_argument("--lat", type=float, default=DEFAULT_LAT, help="Latitude (default: -3)")
     parser.add_argument("--lon", type=float, default=DEFAULT_LON, help="Longitude (default: -63)")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
@@ -216,19 +223,19 @@ def main():
         if args.device.startswith("cuda"):
             torch.cuda.empty_cache()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for model_name, passed in results.items():
         status = "✅ PASS" if passed else "❌ FAIL"
         print(f"  {model_name}: {status}")
 
     all_passed = all(results.values())
     if all_passed:
-        print(f"\n🎉 All tests passed!")
+        print("\n🎉 All tests passed!")
         return 0
     else:
-        print(f"\n⚠️  Some tests failed.")
+        print("\n⚠️  Some tests failed.")
         return 1
 
 
