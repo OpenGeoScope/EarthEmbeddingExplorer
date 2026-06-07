@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import gradio as gr
@@ -32,9 +33,40 @@ DOWNLOAD_ENDPOINT = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 if DOWNLOAD_ENDPOINT not in ("modelscope.cn", "modelscope.ai", "huggingface"):
     print("\n====== Warning: DOWNLOAD_ENDPOINT should be modelscope.cn, modelscope.ai, or huggingface! =====\n")
 
-# Initialize ModelManager (loads all models)
-model_manager = ModelManager()
+
+def _get_requested_models():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,SatCLIP,FarSLIP,Clay,OlmoEarth.",
+    )
+    args, _ = parser.parse_known_args()
+    return args.models or os.getenv("EEX_MODELS")
+
+
+def _ordered_available_models(candidates):
+    available = model_manager.get_available_models()
+    return [model_name for model_name in candidates if model_name in available]
+
+
+def _default_model(choices, preferred):
+    if preferred in choices:
+        return preferred
+    return choices[0] if choices else None
+
+
+# Initialize ModelManager. By default this loads all models; pass --models or
+# EEX_MODELS to reduce GPU memory usage on smaller devices.
+model_manager = ModelManager(selected_models=_get_requested_models())
 models = model_manager.models  # Keep for backward compatibility with existing code
+print(f"Loaded models: {', '.join(model_manager.get_available_models()) or 'none'}")
+
+TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP"])
+IMAGE_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"])
+MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP"])
+HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
 
 INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款工具跨模态遥感图像检索工具，允许您使用自然语言描述、图像、地理位置或简单地在地图上点击来搜索地球的卫星图像。例如，您可以输入“热带雨林”或“有城市的海岸线”，系统就会找到地球上与您描述相符的位置。然后，它会在世界地图上可视化这些位置的卫星图像嵌入和您的输入嵌入的相似度，并显示最相似的图像。您可以下载检索结果和最相似的图像。"
 INTRODUCTION_EN = 'EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.'
@@ -126,7 +158,11 @@ div.form:has(.filter-checkbox) {
         with gr.Column(scale=4):
             with gr.Tabs():
                 with gr.TabItem("Text Search") as tab_text:
-                    model_selector_text = gr.Dropdown(choices=["SigLIP", "FarSLIP"], value="FarSLIP", label="Model")
+                    model_selector_text = gr.Dropdown(
+                        choices=TEXT_MODELS,
+                        value=_default_model(TEXT_MODELS, "FarSLIP"),
+                        label="Model",
+                    )
                     query_input = gr.Textbox(label="Query", placeholder="e.g., rainforest, glacier")
 
                     gr.Examples(
@@ -144,12 +180,12 @@ div.form:has(.filter-checkbox) {
                         label="Text Examples",
                     )
 
-                    search_btn = gr.Button("Search by Text", variant="primary")
+                    search_btn = gr.Button("Search by Text", variant="primary", interactive=bool(TEXT_MODELS))
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"],
-                        value="Clay",
+                        choices=IMAGE_MODELS,
+                        value=_default_model(IMAGE_MODELS, "Clay"),
                         label="Model",
                     )
 
@@ -182,9 +218,11 @@ div.form:has(.filter-checkbox) {
                     img_pid = gr.Textbox(label="Product ID (auto-filled)", visible=False)
                     img_click_status = gr.Markdown("")
 
-                    btn_download_img = gr.Button("Download Image by Geolocation", variant="secondary")
+                    btn_download_img = gr.Button(
+                        "Download Image by Geolocation", variant="secondary", interactive=bool(IMAGE_MODELS)
+                    )
 
-                    search_img_btn = gr.Button("Search by Image", variant="primary")
+                    search_img_btn = gr.Button("Search by Image", variant="primary", interactive=bool(IMAGE_MODELS))
 
                 with gr.TabItem("Location Search") as tab_location:
                     gr.Markdown("Search using **SatCLIP** location encoder.")
@@ -211,7 +249,7 @@ div.form:has(.filter-checkbox) {
                         label="Location Examples",
                     )
 
-                    search_loc_btn = gr.Button("Search by Location", variant="primary")
+                    search_loc_btn = gr.Button("Search by Location", variant="primary", interactive=HAS_SATCLIP)
 
                 with gr.TabItem("Mixed Search") as tab_mixed:
                     gr.Markdown("""
@@ -221,7 +259,9 @@ div.form:has(.filter-checkbox) {
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=["FarSLIP", "SigLIP"], value="FarSLIP", label="Model for Text/Image"
+                        choices=MIXED_TEXT_IMAGE_MODELS,
+                        value=_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP"),
+                        label="Model for Text/Image",
                     )
 
                     gr.Markdown("#### 📝 Text Query")
@@ -270,7 +310,9 @@ div.form:has(.filter-checkbox) {
                             minimum=0, maximum=1, value=0.33, step=0.01, label="Location Weight"
                         )
 
-                    search_mixed_btn = gr.Button("🔍 Mixed Search", variant="primary")
+                    search_mixed_btn = gr.Button(
+                        "🔍 Mixed Search", variant="primary", interactive=bool(MIXED_TEXT_IMAGE_MODELS or HAS_SATCLIP)
+                    )
 
             threshold_slider = gr.Slider(minimum=1, maximum=30, value=7, step=1, label="Top Percentage (‰)")
 

@@ -1,5 +1,7 @@
 """Model initialization and management for EarthEmbeddingExplorer."""
 
+from typing import ClassVar
+
 import torch
 
 from models.clay_model import ClayModel
@@ -14,26 +16,78 @@ from models.siglip_model import SigLIPModel
 class ModelManager:
     """Manages model loading and retrieval."""
 
-    def __init__(self, device=None):
+    MODEL_LOAD_ORDER: ClassVar[tuple[str, ...]] = ("DINOv2", "SigLIP", "SatCLIP", "FarSLIP", "Clay", "OlmoEarth")
+    _MODEL_ALIASES: ClassVar[dict[str, str]] = {model_name.lower(): model_name for model_name in MODEL_LOAD_ORDER}
+
+    def __init__(self, device=None, selected_models=None):
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Running on device: {self.device}")
 
         self.config = load_and_process_config()
         print(self.config)
 
+        self.selected_models = self._normalize_selected_models(selected_models)
         self.models = {}
         self._load_all_models()
 
-    def _load_all_models(self):
-        """Load all available embedding models."""
-        print("Initializing models...")
+    @classmethod
+    def parse_model_list(cls, value):
+        """Parse a comma-separated model list.
 
-        self._load_dinov2()
-        self._load_siglip()
-        self._load_satclip()
-        self._load_farslip()
-        self._load_clay()
-        self._load_olmoearth()
+        Returns None for empty/all values so callers can keep the default
+        behavior of loading every supported model.
+        """
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.replace(";", ",").split(",")]
+        else:
+            parts = [str(part).strip() for part in value]
+
+        requested = [part for part in parts if part]
+        if not requested or any(part.lower() == "all" for part in requested):
+            return None
+
+        return requested
+
+    @classmethod
+    def _normalize_selected_models(cls, selected_models):
+        requested = cls.parse_model_list(selected_models)
+        if requested is None:
+            return list(cls.MODEL_LOAD_ORDER)
+
+        selected = []
+        invalid = []
+        for model_name in requested:
+            canonical_name = cls._MODEL_ALIASES.get(model_name.lower())
+            if canonical_name is None:
+                invalid.append(model_name)
+                continue
+            if canonical_name not in selected:
+                selected.append(canonical_name)
+
+        if invalid:
+            valid = ", ".join(cls.MODEL_LOAD_ORDER)
+            invalid_str = ", ".join(invalid)
+            raise ValueError(f"Unknown model(s): {invalid_str}. Valid models: {valid}.")
+
+        return selected
+
+    def _load_all_models(self):
+        """Load the selected embedding models."""
+        print(f"Initializing models: {', '.join(self.selected_models)}")
+
+        loaders = {
+            "DINOv2": self._load_dinov2,
+            "SigLIP": self._load_siglip,
+            "SatCLIP": self._load_satclip,
+            "FarSLIP": self._load_farslip,
+            "Clay": self._load_clay,
+            "OlmoEarth": self._load_olmoearth,
+        }
+        for model_name in self.selected_models:
+            loaders[model_name]()
 
     def _load_dinov2(self):
         """Load DINOv2 model."""
