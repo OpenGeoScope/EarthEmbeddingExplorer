@@ -1,24 +1,24 @@
 siglip:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_name: "ViT-SO400M-14-SigLIP-384"
-  tokenizer_path: "Download_From_$DOWNLOAD_ENPOINT"
+  tokenizer_path: "Download_From_$DOWNLOAD_ENDPOINT"
   embedding_path: "ms://Major-TOM/Core-S2RGB-249k-SigLIP/SigLIP_crop_384x384.parquet"
 
 farslip:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_name: "ViT-B-16"
   embedding_path: "ms://Major-TOM/Core-S2RGB-249k-FarSLIP/FarSLIP_crop_384x384.parquet"
 satclip:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   embedding_path: "ms://Major-TOM/Core-S2L2A-249k-SatCLIP/SatCLIP_crop_384x384.parquet"
 dinov2:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   embedding_path: "ms://Major-TOM/Core-S2RGB-249k-DINOv2/DINOv2_crop_384x384.parquet"
 clay:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   embedding_path: "ms://Major-TOM/Core-S2L2A-249k-Clay-v1_5/Clay_crop_384x384.parquet"
 
 olmoearth:
-  ckpt_path: "Download_From_$DOWNLOAD_ENPOINT"
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_size: "base"  # nano | tiny | base | large
   embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-Base/OlmoEarth_Base_crop_384x384.parquet"
