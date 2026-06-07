@@ -191,3 +191,95 @@ class MajorTOM_Embedder(torch.nn.Module):
                 df_rows.append(row_dict)
 
         return gpd.GeoDataFrame(df_rows).astype(self.column_types)
+
+    def forward_batch(self, rows_and_meta, device='cuda'):
+        """
+        Batch version of forward().
+
+        Args:
+            rows_and_meta: Iterable of (row, row_meta) pairs.
+            device (str): The device to run the model on ('cpu' or 'cuda').
+
+        Returns:
+            geopandas.GeoDataFrame: Metadata and embeddings for every fragment in
+            the same order as calling forward() on each input row.
+        """
+        contexts = []
+        fragment_batches = []
+
+        for row, row_meta in rows_and_meta:
+            img, footprint, crs = self._read_image(row)
+            fragments, xys = fragment_fn(img, **self.frag_params, return_indices=True, verbose=False)
+
+            nrows, ncols, c, h, w = fragments.shape
+            fragment_batches.append(fragments.reshape(-1, c, h, w))
+            contexts.append({
+                'img_shape': img.shape,
+                'footprint': footprint,
+                'crs': crs,
+                'row_meta': row_meta,
+                'xys': xys,
+                'nrows': nrows,
+                'ncols': ncols,
+                'h': h,
+                'w': w,
+                'count': nrows * ncols,
+            })
+
+        if not fragment_batches:
+            return gpd.GeoDataFrame([]).astype(self.column_types)
+
+        fragments_batch = torch.cat(fragment_batches, dim=0).to(device)
+        with torch.no_grad():
+            embeddings = self.embedder(fragments_batch).detach().cpu()
+
+        df_rows = []
+        offset = 0
+
+        for context in contexts:
+            count = context['count']
+            nrows = context['nrows']
+            ncols = context['ncols']
+            h = context['h']
+            w = context['w']
+            row_meta = context['row_meta']
+            xys = context['xys']
+            footprint = context['footprint']
+            crs = context['crs']
+            img_shape = context['img_shape']
+            sample_embeddings = embeddings[offset:offset + count].view(nrows, ncols, -1)
+            offset += count
+
+            transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
+
+            for r_idx in range(nrows):
+                for c_idx in range(ncols):
+                    embedding = sample_embeddings[r_idx, c_idx].numpy()
+                    x_offset, y_offset = xys[r_idx, c_idx].int().tolist()
+                    pixel_bbox = [x_offset, y_offset, x_offset + h, y_offset + w]
+                    utm_footprint = crop_footprint(footprint, *img_shape[:2], pixel_bbox)
+                    geometry = transform(transformer.transform, utm_footprint)
+                    centre_lon, centre_lat = geometry.centroid.coords[0]
+
+                    row_dict = {
+                        'unique_id': self.calculate_checksum(
+                            geometry, row_meta.timestamp.item(), row_meta.product_id.item(), embedding
+                        ),
+                        'embedding': embedding,
+                        'timestamp': row_meta.timestamp.item(),
+                        'product_id': row_meta.product_id.item(),
+                        'grid_cell': row_meta.grid_cell.item(),
+                        'grid_row_u': row_meta.grid_row_u.item(),
+                        'grid_col_r': row_meta.grid_col_r.item(),
+                        'geometry': geometry,
+                        'centre_lat': centre_lat,
+                        'centre_lon': centre_lon,
+                        'utm_footprint': utm_footprint.wkt,
+                        'utm_crs': crs.to_string(),
+                        'pixel_bbox': pixel_bbox,
+                        'parquet_row': row_meta.parquet_row.item() if 'parquet_row' in row_meta.columns else None,
+                        'parquet_url': row_meta.parquet_url.item() if 'parquet_url' in row_meta.columns else None,
+                    }
+                    df_rows.append(row_dict)
+
+        return gpd.GeoDataFrame(df_rows).astype(self.column_types)

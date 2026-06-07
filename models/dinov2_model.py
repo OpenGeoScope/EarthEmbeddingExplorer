@@ -134,6 +134,42 @@ class DINOv2Model:
         """
         return (2.5 * (input_data / 1e4)).clip(0, 1)
 
+    def _preprocess_tensor_batch(self, image, preprocess_s2=True):
+        """Preprocess a CHW/NCHW tensor batch on-device for DINOv2."""
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
+
+        image = image.to(self.device, non_blocking=True).float()
+        if preprocess_s2:
+            image = self.preprocess_s2(image)
+
+        size_cfg = getattr(self.processor, "size", {})
+        if isinstance(size_cfg, dict):
+            resize_short = size_cfg.get("shortest_edge")
+        else:
+            resize_short = getattr(size_cfg, "shortest_edge", None)
+        resize_short = resize_short or max(self.size)
+
+        h, w = image.shape[-2:]
+        if h <= w:
+            resized_h = resize_short
+            resized_w = round(w * resize_short / h)
+        else:
+            resized_h = round(h * resize_short / w)
+            resized_w = resize_short
+
+        if (resized_h, resized_w) != (h, w):
+            image = F.interpolate(image, size=(resized_h, resized_w), mode="bicubic", align_corners=False)
+
+        crop_h, crop_w = self.size
+        top = max((image.shape[-2] - crop_h) // 2, 0)
+        left = max((image.shape[-1] - crop_w) // 2, 0)
+        image = image[..., top : top + crop_h, left : left + crop_w]
+
+        mean = torch.tensor(self.processor.image_mean, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+        std = torch.tensor(self.processor.image_std, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+        return (image - mean) / std
+
     def encode_image(self, image, preprocess_s2=True, normalize=True):
         """
         Encode an image into a feature embedding.
@@ -157,83 +193,23 @@ class DINOv2Model:
 
         # Convert to PIL Image if needed
         if isinstance(image, torch.Tensor):
-            if preprocess_s2:
-                image = self.preprocess_s2(image)
-            if normalize:
-                # Convert to [H, W, C] and then to numpy
-                if image.dim() == 4:
-                    # Batch processing: [N, C, H, W]
-                    features = []
-                    for i in range(image.shape[0]):
-                        img = image[i]
-                        if img.shape[0] == 3:  # [C, H, W]
-                            img = img.permute(1, 2, 0)
-                        img_np = (img.detach().cpu().numpy() * 255).astype(np.uint8)
-                        img_pil = Image.fromarray(img_np, mode="RGB")
-                        inputs = self.processor(images=img_pil, return_tensors="pt")
-                        pixel_values = inputs["pixel_values"].to(self.device)
-                        with torch.no_grad():
-                            outputs = self.model(pixel_values)
-                            feat = outputs.last_hidden_state.mean(dim=1)
-                            feat = F.normalize(feat, dim=-1)
-                        features.append(feat)
-                    return torch.cat(features, dim=0)
+            pixel_values = self._preprocess_tensor_batch(image, preprocess_s2=preprocess_s2)
+            with torch.inference_mode():
+                if pixel_values.is_cuda:
+                    with torch.amp.autocast("cuda"):
+                        outputs = self.model(pixel_values)
                 else:
-                    if image.shape[0] == 3:  # [C, H, W]
-                        image = image.permute(1, 2, 0)
-                    image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
-                    image = Image.fromarray(image_np, mode="RGB")
-            else:
-                # Pass tensor directly to processor
-                if image.dim() == 3:
-                    image = image.unsqueeze(0)
-                inputs = self.processor(images=image, return_tensors="pt")
-                pixel_values = inputs["pixel_values"].to(self.device)
-                with torch.no_grad():
                     outputs = self.model(pixel_values)
-                    image_features = outputs.last_hidden_state.mean(dim=1)
-                    image_features = F.normalize(image_features, dim=-1)
-                return image_features
+                image_features = outputs.last_hidden_state.mean(dim=1)
+                image_features = F.normalize(image_features, dim=-1)
+            return image_features
 
         elif isinstance(image, np.ndarray):
-            if preprocess_s2:
-                image = self.preprocess_s2(image)
-            if normalize:
-                # Assume [H, W, C] format
-                if image.ndim == 4:
-                    features = []
-                    for i in range(image.shape[0]):
-                        img = image[i]
-                        if img.max() <= 1.0:
-                            img = (img * 255).astype(np.uint8)
-                        else:
-                            img = img.astype(np.uint8)
-                        img_pil = Image.fromarray(img, mode="RGB")
-                        inputs = self.processor(images=img_pil, return_tensors="pt")
-                        pixel_values = inputs["pixel_values"].to(self.device)
-                        with torch.no_grad():
-                            outputs = self.model(pixel_values)
-                            feat = outputs.last_hidden_state.mean(dim=1)
-                            feat = F.normalize(feat, dim=-1)
-                        features.append(feat)
-                    return torch.cat(features, dim=0)
-                else:
-                    if image.max() <= 1.0:
-                        image = (image * 255).astype(np.uint8)
-                    else:
-                        image = image.astype(np.uint8)
-                    image = Image.fromarray(image, mode="RGB")
-            else:
-                image = torch.from_numpy(image)
-                if image.dim() == 3:
-                    image = image.unsqueeze(0)
-                inputs = self.processor(images=image, return_tensors="pt")
-                pixel_values = inputs["pixel_values"].to(self.device)
-                with torch.no_grad():
-                    outputs = self.model(pixel_values)
-                    image_features = outputs.last_hidden_state.mean(dim=1)
-                    image_features = F.normalize(image_features, dim=-1)
-                return image_features
+            if image.ndim == 3:
+                image = image[np.newaxis, ...]
+            if image.shape[-1] == 3:
+                image = image.transpose(0, 3, 1, 2)
+            return self.encode_image(torch.from_numpy(image), preprocess_s2=preprocess_s2, normalize=normalize)
 
         elif isinstance(image, Image.Image):
             image = image.convert("RGB")
@@ -245,7 +221,7 @@ class DINOv2Model:
         pixel_values = inputs["pixel_values"].to(self.device)
 
         # Generate embeddings
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = self.model(pixel_values)
             image_features = outputs.last_hidden_state.mean(dim=1)
 

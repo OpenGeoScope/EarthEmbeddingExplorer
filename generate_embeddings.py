@@ -165,8 +165,102 @@ def _embed_single_fragment(embedder, row, row_meta, device, fragment_size, img=N
     return gdf.astype(column_types)
 
 
+def _metadata_lookup(meta_index, grid_cell, product_id):
+    """Return a single-row metadata DataFrame for a parquet row."""
+    try:
+        row_meta = meta_index.loc[(grid_cell, product_id)]
+    except KeyError:
+        return None
+
+    if isinstance(row_meta, pd.Series):
+        row_meta = row_meta.to_frame().T
+    else:
+        row_meta = row_meta.head(1)
+    return row_meta
+
+
+def _first_value(row_meta, column):
+    """Extract a scalar from a one-row metadata DataFrame."""
+    return row_meta[column].iloc[0]
+
+
+def _prepare_single_fragment_image(img, fragment_size):
+    """Resize a pre-cropped image to fragment_size and return CHW tensor."""
+    h, w, _c = img.shape
+    if h != fragment_size or w != fragment_size:
+        img_np = img.numpy() if torch.is_tensor(img) else np.array(img)
+        img = torch.from_numpy(cv2.resize(img_np, (fragment_size, fragment_size), interpolation=cv2.INTER_NEAREST))
+    elif not torch.is_tensor(img):
+        img = torch.from_numpy(np.array(img))
+    return img.permute(2, 0, 1)
+
+
+def _build_single_fragment_rows(batch_items, embeddings, fragment_size):
+    """Build output rows for a batch of one-fragment images."""
+    rows = []
+    column_types = {
+        "grid_row_u": "int16",
+        "grid_col_r": "int16",
+        "centre_lat": "float32",
+        "centre_lon": "float32",
+    }
+
+    for item, embedding_tensor in zip(batch_items, embeddings, strict=True):
+        row_meta = item["row_meta"]
+        embedding = embedding_tensor.detach().cpu().numpy()
+        transformer = Transformer.from_crs(item["crs"], CRS.from_epsg(4326), always_xy=True)
+        geometry = shapely_transform(transformer.transform, item["footprint"])
+        centre_lon, centre_lat = geometry.centroid.coords[0]
+
+        timestamp = _first_value(row_meta, "timestamp")
+        product_id = _first_value(row_meta, "product_id")
+        combined = f"{geometry}_{timestamp}_{product_id}_{embedding}"
+        unique_id = hashlib.sha256(combined.encode()).hexdigest()
+
+        rows.append(
+            {
+                "unique_id": unique_id,
+                "embedding": embedding,
+                "timestamp": timestamp,
+                "product_id": product_id,
+                "grid_cell": _first_value(row_meta, "grid_cell"),
+                "grid_row_u": _first_value(row_meta, "grid_row_u"),
+                "grid_col_r": _first_value(row_meta, "grid_col_r"),
+                "geometry": geometry,
+                "centre_lat": centre_lat,
+                "centre_lon": centre_lon,
+                "utm_footprint": item["footprint"].wkt,
+                "utm_crs": item["crs"].to_string(),
+                "pixel_bbox": [0, 0, fragment_size, fragment_size],
+                "parquet_row": _first_value(row_meta, "parquet_row") if "parquet_row" in row_meta.columns else None,
+                "parquet_url": _first_value(row_meta, "parquet_url") if "parquet_url" in row_meta.columns else None,
+            }
+        )
+
+    return gpd.GeoDataFrame(rows).astype(column_types)
+
+
+def _flush_single_fragment_batch(embedder, batch_items, device, fragment_size):
+    """Encode a pending batch of single-fragment images."""
+    if not batch_items:
+        return None
+
+    image_batch = torch.stack([item["image"] for item in batch_items], dim=0).to(device, non_blocking=True)
+    with torch.no_grad():
+        embeddings = embedder.embedder(image_batch)
+    return _build_single_fragment_rows(batch_items, embeddings, fragment_size)
+
+
 def generate_embeddings(
-    model_name, meta_path, parquet_input, output_path, device=None, max_row_groups=None, fragment_size=None
+    model_name,
+    meta_path,
+    parquet_input,
+    output_path,
+    device=None,
+    max_row_groups=None,
+    fragment_size=None,
+    batch_size=16,
+    preload_parquet=False,
 ):
     """Main embedding generation logic."""
     if model_name not in MODEL_MAP:
@@ -200,17 +294,23 @@ def generate_embeddings(
     parquet_files = get_parquet_files(parquet_input)
     print(f"Found {len(parquet_files)} parquet file(s) to process.")
 
-    embed_df = None
+    embed_frames = []
+    meta_cache = {}
 
     for pf_path in parquet_files:
         print(f"\nProcessing {pf_path} ...")
 
         resolved_meta = resolve_meta_url(meta_path, pf_path)
-        print(f"Loading metadata from {resolved_meta} ...")
-        meta_df = pd.read_parquet(resolved_meta)
+        if resolved_meta not in meta_cache:
+            print(f"Loading metadata from {resolved_meta} ...")
+            meta_df = pd.read_parquet(resolved_meta)
+            meta_cache[resolved_meta] = meta_df.set_index(["grid_cell", "product_id"], drop=False)
+        else:
+            print(f"Reusing metadata from {resolved_meta} ...")
+        meta_index = meta_cache[resolved_meta]
 
         bands = embedder.bands()
-        columns = [*bands, "product_id", "grid_cell", "timestamp"]
+        columns = [*bands, "product_id", "grid_cell"]
 
         # Open parquet file
         if os.path.isfile(pf_path):
@@ -221,42 +321,93 @@ def generate_embeddings(
             f = open_parquet_file(pf_path, columns=columns)
             pf = pq.ParquetFile(f)
 
+        preloaded_table = None
+        if preload_parquet and use_single_fragment:
+            if os.path.isfile(pf_path):
+                print("Preloading parquet columns into memory ...")
+                preloaded_table = pq.read_table(pf_path, columns=columns)
+            else:
+                print("Skipping parquet preload for non-local parquet input.")
+
         num_row_groups = pf.num_row_groups if max_row_groups is None else min(pf.num_row_groups, max_row_groups)
+        if preloaded_table is not None:
+            num_row_groups = min(preloaded_table.num_rows, num_row_groups)
 
-        for row_idx in range(num_row_groups):
-            row = pf.read_row_group(row_idx, columns=columns)
+        batch_items = []
+        embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
 
+        def process_row(row, row_idx, batch_items, meta_index=meta_index, num_row_groups=num_row_groups):
+            nonlocal embed_count
             grid_cell = row["grid_cell"][0].as_py()
             product_id = row["product_id"][0].as_py()
 
-            row_meta = meta_df[(meta_df["grid_cell"] == grid_cell) & (meta_df["product_id"] == product_id)].head(1)
+            row_meta = _metadata_lookup(meta_index, grid_cell, product_id)
 
-            if row_meta.empty:
+            if row_meta is None or row_meta.empty:
                 print(f"  ⚠️ Metadata not found for {product_id} / {grid_cell}, skipping.")
-                continue
+                return batch_items
 
             if use_single_fragment:
-                # Peek at image size to decide whether to tile or treat as a single fragment
                 img, footprint, crs = embedder._read_image(row)
                 h, w = img.shape[:2]
                 if h <= fragment_size and w <= fragment_size:
-                    embed_dict = _embed_single_fragment(
-                        embedder, row, row_meta, device, fragment_size, img=img, footprint=footprint, crs=crs
+                    batch_items.append(
+                        {
+                            "image": _prepare_single_fragment_image(img, fragment_size),
+                            "row_meta": row_meta,
+                            "footprint": footprint,
+                            "crs": crs,
+                        }
                     )
+                    if len(batch_items) >= batch_size:
+                        embed_frames.append(_flush_single_fragment_batch(embedder, batch_items, device, fragment_size))
+                        batch_items = []
+                    embed_count = sum(len(frame) for frame in embed_frames if frame is not None) + len(batch_items)
                 else:
+                    batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+                    if batch_frame is not None:
+                        embed_frames.append(batch_frame)
+                    batch_items = []
                     embed_dict = embedder(row, row_meta, device=device)
+                    embed_frames.append(embed_dict)
+                    embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
             else:
                 embed_dict = embedder(row, row_meta, device=device)
-
-            if embed_df is None:
-                embed_df = embed_dict
-            else:
-                embed_df = pd.concat([embed_df, embed_dict], ignore_index=True)
+                embed_frames.append(embed_dict)
+                embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
 
             if (row_idx + 1) % 10 == 0 or row_idx == num_row_groups - 1:
-                print(f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {len(embed_df)}")
+                print(f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {embed_count}")
 
-    if embed_df is None or embed_df.empty:
+            return batch_items
+
+        if use_single_fragment and preloaded_table is not None:
+            for batch_start in range(0, num_row_groups, batch_size):
+                batch_end = min(batch_start + batch_size, num_row_groups)
+                row_table = preloaded_table.slice(batch_start, batch_end - batch_start)
+                for row_pos, row_idx in enumerate(range(batch_start, batch_end)):
+                    batch_items = process_row(row_table.slice(row_pos, 1), row_idx, batch_items)
+        elif use_single_fragment:
+            for batch_start in range(0, num_row_groups, batch_size):
+                row_group_indices = list(range(batch_start, min(batch_start + batch_size, num_row_groups)))
+                row_table = pf.read_row_groups(row_group_indices, columns=columns)
+                for row_pos, row_idx in enumerate(row_group_indices):
+                    batch_items = process_row(row_table.slice(row_pos, 1), row_idx, batch_items)
+        else:
+            for row_idx in range(num_row_groups):
+                row = pf.read_row_group(row_idx, columns=columns)
+                batch_items = process_row(row, row_idx, batch_items)
+
+        batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+        if batch_frame is not None:
+            embed_frames.append(batch_frame)
+
+    if not embed_frames:
+        print("No embeddings were generated.")
+        return
+
+    embed_df = pd.concat(embed_frames, ignore_index=True)
+    if embed_df.empty:
         print("No embeddings were generated.")
         return
 
@@ -305,6 +456,17 @@ def main():
             "should produce a single embedding instead of multiple fragments."
         ),
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        help="Number of pre-cropped single-fragment images to encode per model call.",
+    )
+    parser.add_argument(
+        "--preload_parquet",
+        action="store_true",
+        help="Preload local parquet columns into memory before single-fragment embedding generation.",
+    )
 
     args = parser.parse_args()
     generate_embeddings(
@@ -315,6 +477,8 @@ def main():
         device=args.device,
         max_row_groups=args.max_row_groups,
         fragment_size=args.fragment_size,
+        batch_size=args.batch_size,
+        preload_parquet=args.preload_parquet,
     )
 
 

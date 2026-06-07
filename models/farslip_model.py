@@ -183,6 +183,35 @@ class FarSLIPModel:
             pil_images.append(Image.fromarray(img_np, mode="RGB"))
         return pil_images
 
+    def _preprocess_tensor_batch(self, image, preprocess_s2=True):
+        """Preprocess a CHW/NCHW tensor batch without converting each image to PIL."""
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
+
+        image = image.to(self.device, non_blocking=True).float()
+        if preprocess_s2:
+            image = self.preprocess_s2(image)
+
+        if tuple(image.shape[-2:]) != self.size:
+            image = F.interpolate(image, size=self.size, mode="bicubic", align_corners=False, antialias=True)
+
+        mean = std = None
+        for transform in getattr(self.preprocess, "transforms", []):
+            if hasattr(transform, "mean") and hasattr(transform, "std"):
+                mean = torch.tensor(transform.mean, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+                std = torch.tensor(transform.std, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+                break
+
+        if mean is None or std is None:
+            mean = torch.tensor((0.48145466, 0.4578275, 0.40821073), dtype=image.dtype, device=image.device).view(
+                1, -1, 1, 1
+            )
+            std = torch.tensor((0.26862954, 0.26130258, 0.27577711), dtype=image.dtype, device=image.device).view(
+                1, -1, 1, 1
+            )
+
+        return (image - mean) / std
+
     def encode_image(self, image, preprocess_s2=True, normalize=True):
         """
         Encode an image into a feature embedding.
@@ -205,14 +234,9 @@ class FarSLIPModel:
             return None
 
         if isinstance(image, torch.Tensor):
-            if preprocess_s2:
-                image = self.preprocess_s2(image)
-            if image.dim() == 3:
-                image = image.unsqueeze(0)
-            pil_images = self._tensor_to_pil_batch(image)
-            image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
-            with torch.no_grad():
-                if self.device == "cuda":
+            image_tensors = self._preprocess_tensor_batch(image, preprocess_s2=preprocess_s2)
+            with torch.inference_mode():
+                if image_tensors.is_cuda:
                     with torch.amp.autocast("cuda"):
                         image_features = self.model.encode_image(image_tensors)
                 else:
@@ -221,27 +245,11 @@ class FarSLIPModel:
             return image_features
 
         elif isinstance(image, np.ndarray):
-            if preprocess_s2:
-                image = self.preprocess_s2(image)
             if image.ndim == 3:
                 image = image[np.newaxis, ...]
-            pil_images = []
-            for i in range(image.shape[0]):
-                img = image[i]
-                if img.max() <= 1.0:
-                    img = (img * 255).astype(np.uint8)
-                else:
-                    img = img.astype(np.uint8)
-                pil_images.append(Image.fromarray(img, mode="RGB"))
-            image_tensors = torch.stack([self.preprocess(img) for img in pil_images]).to(self.device)
-            with torch.no_grad():
-                if self.device == "cuda":
-                    with torch.amp.autocast("cuda"):
-                        image_features = self.model.encode_image(image_tensors)
-                else:
-                    image_features = self.model.encode_image(image_tensors)
-                image_features = F.normalize(image_features, dim=-1)
-            return image_features
+            if image.shape[-1] == 3:
+                image = image.transpose(0, 3, 1, 2)
+            return self.encode_image(torch.from_numpy(image), preprocess_s2=preprocess_s2, normalize=normalize)
 
         elif isinstance(image, Image.Image):
             image = image.convert("RGB")
@@ -250,8 +258,8 @@ class FarSLIPModel:
 
         image_tensor = self.preprocess(image).unsqueeze(0).to(self.device)
 
-        with torch.no_grad():
-            if self.device == "cuda":
+        with torch.inference_mode():
+            if image_tensor.is_cuda:
                 with torch.amp.autocast("cuda"):
                     image_features = self.model.encode_image(image_tensor)
             else:
