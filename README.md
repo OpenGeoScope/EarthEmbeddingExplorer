@@ -290,7 +290,15 @@ If you use EarthEmbeddingExplorer in your research, please cite:
   booktitle={4th ICLR Workshop on Machine Learning for Remote Sensing (Tutorial Track)},
   year={2026},
   url={https://openreview.net/forum?id=LSsEenJVqD}
-}
+
+
+@misc{zheng2026earthembeddingexplorer,
+  title={EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images},
+  author={Yijie Zheng and Weijie Wu and Bingyue Wu and Long Zhao and Guoqing Li and Mikolaj Czerkawski and Konstantin Klemmer},
+  year={2026},
+  eprint={2603.29441},
+  archivePrefix={arXiv},
+  url={https://arxiv.org/abs/2603.29441v1}
 ```
 
 ---
