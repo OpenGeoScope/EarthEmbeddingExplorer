@@ -17,9 +17,23 @@ _CLAY_ROOT = Path(__file__).parent / "Clay"
 if str(_CLAY_ROOT) not in sys.path:
     sys.path.insert(0, str(_CLAY_ROOT))
 
+# The vendored Clay code sets os.environ["TORCH_CUDNN_V8_API_DISABLED"] = "1"
+# at module level (claymodel/model.py) — a defensive workaround for cuDNN v8
+# frontend bugs of the torch 2.0/cuDNN 8 era. Once latched before the first
+# cuDNN use, it forces every model in the process onto legacy conv kernels;
+# Qwen3-VL's 3D-conv patch embedding is ~20x slower as a result. Snapshot and
+# restore the variable around the import so Clay's global side effect does
+# not leak to the other models.
+_TORCH_CUDNN_V8_BACKUP = os.environ.get("TORCH_CUDNN_V8_API_DISABLED")
+
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     from .Clay.claymodel.finetune.embedder.factory import Embedder
+
+if _TORCH_CUDNN_V8_BACKUP is None:
+    os.environ.pop("TORCH_CUDNN_V8_API_DISABLED", None)
+else:
+    os.environ["TORCH_CUDNN_V8_API_DISABLED"] = _TORCH_CUDNN_V8_BACKUP
 
 
 class ClayModel:
