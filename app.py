@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 import gradio as gr
 
@@ -97,11 +98,69 @@ def _download_image_by_location(lat, lon, pid, model_name):
     return download_image_by_location(lat, lon, pid, model_name, models)
 
 
+# Text query samples for the Mixed Search tab. Module-level so the Gradio 6
+# hidden-tab re-render workaround below can reference the same list.
+MIXED_TEXT_EXAMPLE_QUERIES = [
+    ["a satellite image of a river around a city"],
+    ["a satellite image of a rainforest"],
+    ["a satellite image of a glacier"],
+    ["a satellite image of snow covered mountains"],
+]
+
+# Shared example files / coordinates, referenced both by gr.Examples and by the
+# hidden-tab re-render workaround below.
+IMAGE_EXAMPLE_FILES = [
+    ["./examples/example1.png"],
+    ["./examples/example2.png"],
+    ["./examples/example3.png"],
+]
+
+LOCATION_EXAMPLE_COORDS = [
+    [30.32, 120.15],
+    [40.7128, -74.0060],
+    [24.65, 46.71],
+    [-3.4653, -62.2159],
+    [64.4, 16.8],
+]
+
+
+def fix_hidden_tab_examples(tab, examples, raw_samples):
+    """Work around a Gradio 6.17.x frontend bug for gr.Examples in hidden tabs.
+
+    Text samples render as empty buttons and image samples fail order-dependently
+    when the tab is not initially visible (fixed upstream in gradio 6.21.0).
+    Clearing then restoring the samples on tab select forces a re-render.
+    `raw_samples` must be the original Python values (same as passed to
+    gr.Examples), NOT the postprocessed FileData dicts. Verified harmless
+    (redundant no-op) on gradio 5.49.x.
+
+    Args:
+        tab: the gr.TabItem containing the Examples component.
+        examples: the gr.Examples instance to repair (its .dataset is updated).
+        raw_samples: original sample list, e.g. [["./examples/example1.png"]].
+    """
+
+    def _fix():
+        yield gr.Dataset(samples=[])
+        time.sleep(0.4)
+        yield gr.Dataset(samples=raw_samples)
+
+    tab.select(fn=_fix, inputs=None, outputs=[examples.dataset])
+
+
 # Gradio Blocks Interface
 with gr.Blocks(
-    theme=gr.themes.Default(primary_hue=gr.themes.colors.purple),
+    theme=gr.themes.Default(
+        primary_hue=gr.themes.colors.purple,
+        # Gradio 6 bundles Source Sans Pro locally (5.x loaded it from Google Fonts,
+        # which is often unreachable and fell back to system-ui). Pin plain system
+        # fonts so the page looks the same on both versions.
+        font=["ui-sans-serif", "system-ui", "sans-serif"],
+    ),
     title="EarthEmbeddingExplorer",
     css="""
+/* Left-align text samples in gr.Examples (button default is centered) */
+.gallery-item { text-align: left !important; }
 .filter-checkbox {
     background: transparent !important;
     border: 1px solid #d1d5db !important;
@@ -195,12 +254,8 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("### Option 1: Upload or Select Image")
                     image_input = gr.Image(type="pil", label="Upload Image")
 
-                    gr.Examples(
-                        examples=[
-                            ["./examples/example1.png"],
-                            ["./examples/example2.png"],
-                            ["./examples/example3.png"],
-                        ],
+                    ex_img = gr.Examples(
+                        examples=IMAGE_EXAMPLE_FILES,
                         inputs=[image_input],
                         label="Image Examples",
                     )
@@ -234,14 +289,8 @@ div.form:has(.filter-checkbox) {
                     loc_pid = gr.Textbox(label="Product ID (auto-filled)", visible=False)
                     loc_click_status = gr.Markdown("")
 
-                    gr.Examples(
-                        examples=[
-                            [30.32, 120.15],
-                            [40.7128, -74.0060],
-                            [24.65, 46.71],
-                            [-3.4653, -62.2159],
-                            [64.4, 16.8],
-                        ],
+                    ex_loc = gr.Examples(
+                        examples=LOCATION_EXAMPLE_COORDS,
                         inputs=[lat_input, lon_input],
                         label="Location Examples",
                     )
@@ -274,13 +323,8 @@ div.form:has(.filter-checkbox) {
                         label="Text Query (optional)", placeholder="e.g., tropical rainforest, glacier, urban area"
                     )
 
-                    gr.Examples(
-                        examples=[
-                            ["a satellite image of a river around a city"],
-                            ["a satellite image of a rainforest"],
-                            ["a satellite image of a glacier"],
-                            ["a satellite image of snow covered mountains"],
-                        ],
+                    mixed_text_examples = gr.Examples(
+                        examples=MIXED_TEXT_EXAMPLE_QUERIES,
                         inputs=[mixed_text_input],
                         label="Text Examples",
                     )
@@ -288,12 +332,8 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("#### 🖼️ Image Query")
                     mixed_image_input = gr.Image(type="pil", label="Upload Image (optional)")
 
-                    gr.Examples(
-                        examples=[
-                            ["./examples/example1.png"],
-                            ["./examples/example2.png"],
-                            ["./examples/example3.png"],
-                        ],
+                    ex_mixed_img = gr.Examples(
+                        examples=IMAGE_EXAMPLE_FILES,
                         inputs=[mixed_image_input],
                         label="Image Examples",
                     )
@@ -623,6 +663,13 @@ div.form:has(.filter-checkbox) {
     tab_image.select(fn=show_static_map, outputs=[plot_map])
     tab_location.select(fn=show_static_map, outputs=[plot_map])
     tab_mixed.select(fn=show_static_map, outputs=[plot_map])
+
+    # Gradio 6.17.x hidden-tab Examples rendering bug: force re-render on tab
+    # select for every Examples component not in the initially-visible tab.
+    fix_hidden_tab_examples(tab_image, ex_img, IMAGE_EXAMPLE_FILES)
+    fix_hidden_tab_examples(tab_location, ex_loc, LOCATION_EXAMPLE_COORDS)
+    fix_hidden_tab_examples(tab_mixed, mixed_text_examples, MIXED_TEXT_EXAMPLE_QUERIES)
+    fix_hidden_tab_examples(tab_mixed, ex_mixed_img, IMAGE_EXAMPLE_FILES)
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7859, share=False)
