@@ -27,6 +27,7 @@ from ui.callbacks import (
     handle_map_click,
     reset_to_global_map,
 )
+from visualize import warm_up_map_data
 
 # Environment variable for controlling download endpoint
 # Options: 'modelscope.cn', 'modelscope.ai', 'huggingface'
@@ -64,12 +65,30 @@ model_manager = ModelManager(selected_models=_get_requested_models())
 models = model_manager.models  # Keep for backward compatibility with existing code
 print(f"Loaded models: {', '.join(model_manager.get_available_models()) or 'none'}")
 
+# Warm up at startup: load NaturalEarth geometries and pre-render the global
+# map once, so the first page load / first search doesn't stall on them.
+print("Warming up map data (NaturalEarth geometries + initial global map)...")
+warm_up_map_data()
+get_initial_plot(models)
+print("Warm-up done.")
+
 TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL"])
 IMAGE_MODELS = _ordered_available_models(
     ["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"]
 )
 MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
+
+# UI display names: internal keys (config/EEX_MODELS/registry) stay unchanged;
+# only the labels shown in model dropdowns are overridden here.
+MODEL_DISPLAY_NAMES = {"Qwen3VL": "Qwen3-VL-Embedding-2B"}
+
+
+def _model_choices(model_names):
+    """Build (label, value) choice tuples so dropdowns show display names while
+    the component value passed to event handlers stays the internal model key."""
+    return [(MODEL_DISPLAY_NAMES.get(name, name), name) for name in model_names]
+
 
 INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款跨模态遥感图像检索工具。您可以用自然语言描述、上传图像、输入经纬度，或直接在地图上点击，来搜索全球的卫星影像。例如输入“热带雨林”或“有城市的海岸线”，系统会找到地球上与您描述相符的位置，在世界地图上可视化这些位置与查询的相似度，并展示最相似的图像。检索结果和图像均可下载。"
 INTRODUCTION_EN = 'EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.'
@@ -215,7 +234,7 @@ div.form:has(.filter-checkbox) {
             with gr.Tabs():
                 with gr.TabItem("Text Search") as tab_text:
                     model_selector_text = gr.Dropdown(
-                        choices=TEXT_MODELS,
+                        choices=_model_choices(TEXT_MODELS),
                         value=_default_model(TEXT_MODELS, "FarSLIP"),
                         label="Model",
                     )
@@ -240,7 +259,7 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=IMAGE_MODELS,
+                        choices=_model_choices(IMAGE_MODELS),
                         value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
@@ -301,19 +320,19 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("""
                     ### Multi-Modal Fusion Search
                     Combine **Text**, **Image**, and (optionally) **Location** queries with adjustable weights.
-                    Text/Image use FarSLIP, SigLIP, TIPSv2, or Qwen3VL; Location uses SatCLIP when available.
-                    For Qwen3VL, when both Text and Image are provided (without Location),
+                    Text/Image use FarSLIP, SigLIP, TIPSv2, or Qwen3-VL-Embedding-2B; Location uses SatCLIP when available.
+                    For Qwen3-VL-Embedding-2B, when both Text and Image are provided (without Location),
                     native joint encoding is used by default.
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=MIXED_TEXT_IMAGE_MODELS,
+                        choices=_model_choices(MIXED_TEXT_IMAGE_MODELS),
                         value=_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP"),
                         label="Model for Text/Image",
                     )
 
                     use_native_joint_checkbox = gr.Checkbox(
-                        label="Use native text+image joint encoding (Qwen3VL only)",
+                        label="Use native text+image joint encoding (Qwen3-VL-Embedding-2B only)",
                         value=True,
                         visible=(_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP") == "Qwen3VL"),
                     )

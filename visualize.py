@@ -1,11 +1,44 @@
+import os
 from io import BytesIO
 
+import cartopy
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from PIL import Image
+
+# Use the NaturalEarth shapefiles bundled with the repo so cartopy never
+# tries to download them from naturalearth S3 at runtime. On ModelScope
+# Studio that download is slow/unreliable and used to stall the first map
+# render (initial page load) and the first search for tens of seconds.
+_BUNDLED_CARTOPY_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "cartopy_data")
+if os.path.isdir(_BUNDLED_CARTOPY_DATA):
+    cartopy.config["pre_existing_data_dir"] = _BUNDLED_CARTOPY_DATA
+
+# Cache NaturalEarthFeature instances so the shapefiles are parsed only once
+_FEATURE_CACHE = {}
+
+
+def _get_features(scale):
+    """Return cached (land, coastline) NaturalEarth features for a scale."""
+    if scale not in _FEATURE_CACHE:
+        land = cfeature.NaturalEarthFeature("physical", "land", scale)
+        coastline = cfeature.NaturalEarthFeature("physical", "coastline", scale)
+        _FEATURE_CACHE[scale] = (land, coastline)
+    return _FEATURE_CACHE[scale]
+
+
+def warm_up_map_data():
+    """Force-load NaturalEarth geometries for all scales used by the app.
+
+    Called once at startup so the first page load / first search doesn't pay
+    the one-off shapefile loading cost.
+    """
+    for scale in ("50m", "10m"):
+        for feature in _get_features(scale):
+            list(feature.geometries())
 
 
 def plot_global_map_static(df, lat_col="centre_lat", lon_col="centre_lon"):
@@ -40,8 +73,7 @@ def plot_global_map_static(df, lat_col="centre_lat", lon_col="centre_lon"):
 
         if with_basemap:
             # Add land + coastline (Cartopy) - Use 50m resolution to show small islands
-            land_50m = cfeature.NaturalEarthFeature("physical", "land", "50m")
-            coastline_50m = cfeature.NaturalEarthFeature("physical", "coastline", "50m")
+            land_50m, coastline_50m = _get_features("50m")
             ax.add_feature(land_50m, facecolor="lightgray", edgecolor="none", alpha=0.2)
             ax.add_feature(coastline_50m, facecolor="none", linewidth=0.8, alpha=0.5)
 
@@ -105,8 +137,7 @@ def plot_geographic_distribution(df, scores, lat_col="centre_lat", lon_col="cent
 
         if with_basemap:
             # Add land + coastline (Cartopy) - Use 10m resolution to show small islands
-            land_10m = cfeature.NaturalEarthFeature("physical", "land", "10m")
-            coastline_10m = cfeature.NaturalEarthFeature("physical", "coastline", "10m")
+            land_10m, coastline_10m = _get_features("10m")
             ax.add_feature(land_10m, facecolor="lightgray", edgecolor="none", alpha=0.2)
             ax.add_feature(coastline_10m, facecolor="none", linewidth=0.8, alpha=0.5)
 

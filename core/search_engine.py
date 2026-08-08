@@ -141,7 +141,16 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
             df_embed, probs, filtered_indices, top_indices, filter_options
         )
 
-        # Show geographic distribution (not timed)
+        # Generate geographic distribution (not timed); yield a status update
+        # first so the UI shows this stage while the map renders.
+        yield (
+            gr.update(),
+            "Encoding text... ✓\nRetrieving similar images... ✓\nGenerating distribution map...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
             df_for_geo, probs_for_geo, title=f'Similarity to "{query}" ({model_name})'
         )
@@ -167,7 +176,7 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         # 3. Download Images (display always uses thumbnail for gallery)
         yield (
             None,
-            "Encoding text... ✓\nRetrieving similar images... ✓\nDownloading images...",
+            "Encoding text... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
@@ -181,7 +190,7 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         # 4. Visualize - keep geo_dist_map visible
         yield (
             None,
-            "Encoding text... ✓\nRetrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
+            "Encoding text... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
@@ -287,7 +296,16 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
             df_embed, probs, filtered_indices, top_indices, filter_options
         )
 
-        # Show geographic distribution (not timed)
+        # Generate geographic distribution (not timed); yield a status update
+        # first so the UI shows this stage while the map renders.
+        yield (
+            gr.update(),
+            "Encoding image... ✓\nRetrieving similar images... ✓\nGenerating distribution map...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
             df_for_geo, probs_for_geo, title=f"Similarity to Input Image ({model_name})"
         )
@@ -313,7 +331,7 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         # 3. Download Images (display always uses thumbnail for gallery)
         yield (
             None,
-            "Encoding image... ✓\nRetrieving similar images... ✓\nDownloading images...",
+            "Encoding image... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
@@ -327,7 +345,7 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         # 4. Visualize - keep geo_dist_map visible
         yield (
             None,
-            "Encoding image... ✓\nRetrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
+            "Encoding image... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
@@ -771,8 +789,17 @@ def search_mixed(
         )
         extra_warnings = score_warnings + extra_warnings
 
-        # Generate geographic distribution map
+        # Generate geographic distribution map; yield a status update first so
+        # the UI shows this stage while the map renders.
         query_info = " + ".join(status_parts)
+        yield (
+            gr.update(),
+            status_msg + "Retrieving similar images... ✓\nGenerating distribution map...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
             df_for_geo, probs_for_geo, title=f"Mixed Search: {query_info}"
         )
@@ -798,7 +825,7 @@ def search_mixed(
         # --- Download images ---
         yield (
             None,
-            status_msg + "Retrieving similar images... ✓\nDownloading images...",
+            status_msg + "Retrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
@@ -812,7 +839,8 @@ def search_mixed(
         # --- Visualize ---
         yield (
             None,
-            status_msg + "Retrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
+            status_msg
+            + "Retrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,

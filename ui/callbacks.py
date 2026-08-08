@@ -9,6 +9,23 @@ from matplotlib.figure import Figure
 from data_utils import download_and_process_image
 from visualize import plot_global_map_static
 
+# The global map is identical for every session, so render it once and reuse
+# it. Re-rendering the dpi=350 scatter map on every page load used to make
+# the initial load slow (and pile up under concurrent sessions).
+_GLOBAL_MAP_CACHE = {}
+
+
+def _get_global_map(models):
+    """Return cached (img, df_vis) for the global sample map."""
+    first_model_name = next(iter(models), None)
+    if first_model_name is None or models[first_model_name].df_embed is None:
+        return None, None
+
+    if first_model_name not in _GLOBAL_MAP_CACHE:
+        _GLOBAL_MAP_CACHE[first_model_name] = plot_global_map_static(models[first_model_name].df_embed)
+    return _GLOBAL_MAP_CACHE[first_model_name]
+
+
 # Fallback pixel bbox (x0, y_top, x1, y_bottom) for the map area within the
 # 3500x1750 rendered PNG, matching the legacy hardcoded margins. Used only if
 # the layout calibration in _map_axes_pixel_bbox fails.
@@ -65,14 +82,9 @@ def get_initial_plot(models):
         print("Warning: models is None in get_initial_plot")
         return gr.update(visible=True), [], None
 
-    df_vis = None
-    img = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
-    else:
+    img, df_vis = _get_global_map(models)
+    if img is None:
         print("No embedding data available for initial plot.")
-        img, df_vis = None, None
 
     return gr.update(value=img, visible=True), [img] if img else [], df_vis
 
@@ -214,13 +226,8 @@ def reset_to_global_map(models):
         print("Warning: models is None in reset_to_global_map")
         return gr.update(visible=True), [], None
 
-    img = None
-    df_vis = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
-    else:
+    img, df_vis = _get_global_map(models)
+    if img is None:
         print("No embedding data available for initial plot.")
-        img, df_vis = None, None
 
     return gr.update(value=img, visible=True), [img] if img else [], df_vis
