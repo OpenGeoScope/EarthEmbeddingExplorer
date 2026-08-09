@@ -130,8 +130,7 @@ def load_and_process_config(config_path=None):
                     processed[model_name][key] = resolve_path(value)
                 except RuntimeError as e:
                     print(
-                        f"⚠️ {model_name}: embedding path resolution failed ({e}); "
-                        "embeddings disabled for this model."
+                        f"⚠️ {model_name}: embedding path resolution failed ({e}); embeddings disabled for this model."
                     )
                     processed[model_name][key] = None
             else:

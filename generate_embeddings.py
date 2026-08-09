@@ -398,7 +398,9 @@ def generate_embeddings(
             batch_items = []
             embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
 
-            def process_row(row, row_idx, batch_items, meta_index=meta_index, num_row_groups=num_row_groups):
+            def process_row(
+                row, row_idx, batch_items, meta_index=meta_index, num_row_groups=num_row_groups, pf_path=pf_path
+            ):
                 nonlocal embed_count
                 grid_cell = row["grid_cell"][0].as_py()
                 product_id = row["product_id"][0].as_py()
@@ -489,7 +491,7 @@ def generate_embeddings(
                             if batch_frame is not None:
                                 embed_frames.append(batch_frame)
                             batch_items = []
-                            _, row, row_meta, img, footprint, crs = result
+                            _, row, row_meta, _img, _footprint, _crs = result
                             embed_dict = embedder(row, row_meta, device=device)
                             embed_frames.append(embed_dict)
                         else:

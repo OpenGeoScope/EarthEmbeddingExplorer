@@ -18,7 +18,16 @@ from models.tipsv2_model import TIPSv2Model
 class ModelManager:
     """Manages model loading and retrieval."""
 
-    MODEL_LOAD_ORDER: ClassVar[tuple[str, ...]] = ("DINOv2", "SigLIP", "TIPSv2", "SatCLIP", "FarSLIP", "Clay", "OlmoEarth", "Qwen3VL")
+    MODEL_LOAD_ORDER: ClassVar[tuple[str, ...]] = (
+        "DINOv2",
+        "SigLIP",
+        "TIPSv2",
+        "SatCLIP",
+        "FarSLIP",
+        "Clay",
+        "OlmoEarth",
+        "Qwen3VL",
+    )
     _MODEL_ALIASES: ClassVar[dict[str, str]] = {model_name.lower(): model_name for model_name in MODEL_LOAD_ORDER}
 
     def __init__(self, device=None, selected_models=None):

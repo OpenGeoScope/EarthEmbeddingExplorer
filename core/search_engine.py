@@ -23,7 +23,7 @@ def _get_model_and_error(model_manager, model_name):
 
 def _model_supports_native_joint_encoding(model):
     """Check whether a model supports native text+image joint encoding."""
-    return hasattr(model, "encode_text_and_image") and callable(getattr(model, "encode_text_and_image"))
+    return hasattr(model, "encode_text_and_image") and callable(model.encode_text_and_image)
 
 
 def _validate_lat_lon(lat, lon):
@@ -122,17 +122,38 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         timings["Encoding"] = time.time() - t0
 
         if text_features is None:
-            yield gr.update(), "Model does not support text encoding or is not initialized.", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                "Model does not support text encoding or is not initialized.",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # 2. Search
-        yield gr.update(), "Encoding text... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
+        yield (
+            gr.update(),
+            "Encoding text... ✓\nRetrieving similar images...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(text_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
         if probs is None:
-            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                "Search failed (embeddings missing?).",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # Apply post-search filters (time range, geo, etc.)
@@ -277,17 +298,38 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         timings["Encoding"] = time.time() - t0
 
         if image_features is None:
-            yield gr.update(), "Model does not support image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                "Model does not support image encoding.",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # 2. Search
-        yield gr.update(), "Encoding image... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
+        yield (
+            gr.update(),
+            "Encoding image... ✓\nRetrieving similar images...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(image_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
         if probs is None:
-            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                "Search failed (embeddings missing?).",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # Apply post-search filters (time range, geo, etc.)
@@ -411,13 +453,27 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
             return
 
         # 2. Search
-        yield gr.update(), "Encoding location... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
+        yield (
+            gr.update(),
+            "Encoding location... ✓\nRetrieving similar images...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(loc_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
         if probs is None:
-            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                "Search failed (embeddings missing?).",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # Apply post-search filters (time range, geo, etc.)
@@ -591,19 +647,40 @@ def search_mixed(
 
         satclip_model, error = _get_model_and_error(model_manager, "SatCLIP")
         if error and use_location:
-            yield gr.update(), f"SatCLIP required for location search: {error}", gr.update(), gr.update(), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                f"SatCLIP required for location search: {error}",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             return
 
         # Determine the reference df_embed (use the one with most samples or text_image_model's)
         if use_text or use_image:
             if text_image_model.df_embed is None:
-                yield gr.update(), f"Model {model_name} embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    f"Model {model_name} embeddings not loaded (metadata missing). Cannot perform mixed search.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
             df_ref = text_image_model.df_embed
             ref_model_name = model_name
         else:
             if satclip_model.df_embed is None:
-                yield gr.update(), "SatCLIP embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    "SatCLIP embeddings not loaded (metadata missing). Cannot perform mixed search.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
             df_ref = satclip_model.df_embed
             ref_model_name = "SatCLIP"
@@ -616,7 +693,14 @@ def search_mixed(
             df_loc = satclip_model.df_embed
             if df_ti is None or df_loc is None:
                 missing = model_name if df_ti is None else "SatCLIP"
-                yield gr.update(), f"Model {missing} embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    f"Model {missing} embeddings not loaded (metadata missing). Cannot perform mixed search.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
 
             # Align on grid_cell: unique per row within each embedding table and
@@ -667,11 +751,25 @@ def search_mixed(
             timings["Joint Encoding"] = time.time() - t0
 
             if joint_features is None:
-                yield gr.update(), f"Model {model_name} does not support joint text+image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    f"Model {model_name} does not support joint text+image encoding.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
 
             if text_image_model.image_embeddings is None:
-                yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
             embeddings = text_image_model.image_embeddings.cpu().numpy()
             joint_scores = (embeddings @ joint_features.cpu().numpy().T).ravel()
@@ -686,12 +784,26 @@ def search_mixed(
                 timings["Text Encoding"] = time.time() - t0
 
                 if text_features is None:
-                    yield gr.update(), f"Model {model_name} does not support text encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+                    yield (
+                        gr.update(),
+                        f"Model {model_name} does not support text encoding.",
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
                     return
 
                 # Compute similarity
                 if text_image_model.image_embeddings is None:
-                    yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                    yield (
+                        gr.update(),
+                        f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.",
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
                     return
                 embeddings = text_image_model.image_embeddings.cpu().numpy()
                 if need_alignment:
@@ -712,12 +824,26 @@ def search_mixed(
                 timings["Image Encoding"] = time.time() - t0
 
                 if image_features is None:
-                    yield gr.update(), f"Model {model_name} does not support image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+                    yield (
+                        gr.update(),
+                        f"Model {model_name} does not support image encoding.",
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
                     return
 
                 # Compute similarity
                 if text_image_model.image_embeddings is None:
-                    yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                    yield (
+                        gr.update(),
+                        f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.",
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
                     return
                 embeddings = text_image_model.image_embeddings.cpu().numpy()
                 if need_alignment:
@@ -752,7 +878,14 @@ def search_mixed(
 
             # Compute similarity
             if satclip_model.image_embeddings is None:
-                yield gr.update(), "SatCLIP image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    "SatCLIP image embeddings not loaded. Cannot perform mixed search.",
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
             embeddings = satclip_model.image_embeddings.cpu().numpy()
             if need_alignment:
@@ -772,7 +905,14 @@ def search_mixed(
             status_msg += "Encoding image... ✓\n"
         if use_location:
             status_msg += "Encoding location... ✓\n"
-        yield gr.update(), status_msg + "Retrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
+        yield (
+            gr.update(),
+            status_msg + "Retrieving similar images...",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
 
         t0 = time.time()
         # Apply top-percentage threshold for the map candidate pool.
