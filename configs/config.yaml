@@ -32,7 +32,7 @@ tipsv2:
 qwen3vl:
   ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_name: "Qwen/Qwen3-VL-Embedding-2B"
-  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding-2B/Qwen3VL_2B_crop_384x384.parquet"
+  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding/Qwen3VL_2B_crop_384x384.parquet"
   image_size: 384
   warmup_runs: 1
   warmup_batch: 8        # online inference: small batch is enough; set to 96 only for batch embedding generation

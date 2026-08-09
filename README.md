@@ -164,7 +164,7 @@ Each embedding dataset contains the vector representation of every sampled image
 | Clay | Core-S2L2A-249k-Clay-v1.5 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-Clay-v1.5) |
 | OlmoEarth | Core-S2RGB-249k-OlmoEarth | [ModelScope](https://modelscope.cn/datasets/WeijieWu/olmoearth_embdding) |
 | TIPSv2 | Core-S2RGB-249k-TIPSv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-TIPSv2) |
-| Qwen3-VL-Embedding | Core-S2RGB-249k-Qwen3-VL-Embedding-2B | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding-2B) |
+| Qwen3-VL-Embedding | Core-S2RGB-249k-Qwen3-VL-Embedding | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding) |
 
 > **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
 
