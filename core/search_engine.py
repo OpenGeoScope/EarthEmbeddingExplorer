@@ -21,76 +21,157 @@ def _get_model_and_error(model_manager, model_name):
     return model_manager.get_model(model_name)
 
 
+def _model_supports_native_joint_encoding(model):
+    """Check whether a model supports native text+image joint encoding."""
+    return hasattr(model, "encode_text_and_image") and callable(getattr(model, "encode_text_and_image"))
+
+
+def _validate_lat_lon(lat, lon):
+    """Validate latitude/longitude inputs.
+
+    Returns:
+        str | None: A user-facing error message if the input is missing, not
+            numeric, or out of range; None if the location is valid.
+    """
+    if lat is None or lon is None:
+        return "Please provide both latitude and longitude."
+    try:
+        lat_f, lon_f = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return f"Invalid location input (lat={lat!r}, lon={lon!r}). Latitude and longitude must be numbers."
+    if not (-90 <= lat_f <= 90):
+        return f"Invalid latitude {lat_f}: must be within [-90, 90]."
+    if not (-180 <= lon_f <= 180):
+        return f"Invalid longitude {lon_f}: must be within [-180, 180]."
+    return None
+
+
+def _align_on_grid_cell(df_a, df_b):
+    """Align two embedding DataFrames on their unique ``grid_cell`` column.
+
+    ``product_id`` is not unique within an embedding table (one satellite
+    product can cover multiple grid cells), whereas ``grid_cell`` is unique
+    per row and consistent across model embedding sets, so it is the correct
+    key for cross-model alignment. The intersection is sorted to keep the
+    alignment deterministic across processes.
+
+    Returns:
+        tuple: (indices_a, indices_b) as np.ndarray, row-aligned on the sorted
+            intersection of grid cells.
+
+    Raises:
+        ValueError: If either DataFrame has no ``grid_cell`` column or the
+            intersection is empty.
+    """
+    if "grid_cell" not in df_a.columns or "grid_cell" not in df_b.columns:
+        raise ValueError("Embedding metadata is missing the 'grid_cell' column. Cannot perform mixed search.")
+    cells_a = df_a["grid_cell"].values
+    cells_b = df_b["grid_cell"].values
+    common = sorted(set(cells_a) & set(cells_b))
+    if len(common) == 0:
+        raise ValueError("No common grid cells between models. Cannot perform mixed search.")
+    a_cell_to_idx = {cell: idx for idx, cell in enumerate(cells_a)}
+    b_cell_to_idx = {cell: idx for idx, cell in enumerate(cells_b)}
+    indices_a = np.array([a_cell_to_idx[cell] for cell in common])
+    indices_b = np.array([b_cell_to_idx[cell] for cell in common])
+    return indices_a, indices_b
+
+
+def _append_warnings(status_msg, warnings):
+    """Append human-readable warnings to a status message (one per line)."""
+    if not warnings:
+        return status_msg
+    return status_msg + "\n" + "\n".join(f"⚠️ {w}" for w in warnings)
+
+
+def _safe_plot_geographic_distribution(df_for_geo, probs_for_geo, title):
+    """Plot the geographic distribution, degrading gracefully on failure.
+
+    Returns:
+        tuple: (geo_dist_map, df_filtered, warning). If rendering fails, the
+            map is None, ``df_filtered`` falls back to the input DataFrame so
+            search results are still returned, and ``warning`` describes the
+            issue for the status bar.
+    """
+    try:
+        geo_dist_map, df_filtered = plot_geographic_distribution(df_for_geo, probs_for_geo, title=title)
+        return geo_dist_map, df_filtered, None
+    except Exception as e:
+        print(f"⚠️ Geographic distribution map failed: {e}")
+        return None, df_for_geo, "Map visualization unavailable."
+
+
 def search_text(model_manager, query, threshold, model_name, filter_options=None):
     """Search satellite imagery using text query."""
     model, error = _get_model_and_error(model_manager, model_name)
     if error:
-        yield None, None, error, None, None, None, None
+        yield gr.update(), error, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     if not query:
-        yield None, None, "Please enter a query.", None, None, None, None
+        yield gr.update(), "Please enter a query.", gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     try:
         timings = {}
 
         # 1. Encode Text
-        yield None, None, "Encoding text...", None, None, None, None
+        yield gr.update(), "Encoding text...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         text_features = model.encode_text(query)
         timings["Encoding"] = time.time() - t0
 
         if text_features is None:
-            yield None, None, "Model does not support text encoding or is not initialized.", None, None, None, None
+            yield gr.update(), "Model does not support text encoding or is not initialized.", gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         # 2. Search
-        yield None, None, "Encoding text... ✓\nRetrieving similar images...", None, None, None, None
+        yield gr.update(), "Encoding text... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(text_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
         if probs is None:
-            yield None, None, "Search failed (embeddings missing?).", None, None, None, None
+            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         # Apply post-search filters (time range, geo, etc.)
         df_embed = model.df_embed
-        filtered_indices, top_indices, df_for_geo, probs_for_geo = apply_filters(
+        filtered_indices, top_indices, df_for_geo, probs_for_geo, extra_warnings = apply_filters(
             df_embed, probs, filtered_indices, top_indices, filter_options
         )
 
         # Show geographic distribution (not timed)
-        geo_dist_map, df_filtered = plot_geographic_distribution(
-            df_for_geo, probs_for_geo, threshold / 1000.0, title=f'Similarity to "{query}" ({model_name})'
+        geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
+            df_for_geo, probs_for_geo, title=f'Similarity to "{query}" ({model_name})'
         )
+        if map_warning:
+            extra_warnings.append(map_warning)
 
         # Handle 0 results after filtering
         if len(top_indices) == 0:
-            status_msg = (
-                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold."
+            status_msg = _append_warnings(
+                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
+                extra_warnings,
             )
             yield (
-                gr.update(visible=False),
                 [],
                 status_msg,
                 None,
                 [geo_dist_map],
                 df_filtered,
-                gr.update(value=geo_dist_map, visible=True),
+                gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
             )
             return
 
         # 3. Download Images (display always uses thumbnail for gallery)
         yield (
-            gr.update(visible=False),
             None,
             "Encoding text... ✓\nRetrieving similar images... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         display_indices = top_indices[:DISPLAY_TOP_K]
@@ -99,13 +180,12 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
 
         # 4. Visualize - keep geo_dist_map visible
         yield (
-            gr.update(visible=False),
             None,
             "Encoding text... ✓\nRetrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         fig_results = plot_top5_overview(None, results, query_info=query)
@@ -114,7 +194,9 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
 
         # 5. Generate Final Status
         timing_str = f"Encoding {timings['Encoding']:.1f}s, Retrieval {timings['Retrieval']:.1f}s, Download {timings['Download']:.1f}s, Visualization {timings['Visualization']:.1f}s\n\n"
-        status_msg = timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results)
+        status_msg = _append_warnings(
+            timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results), extra_warnings
+        )
 
         all_results = _get_all_results_metadata(model, filtered_indices, probs)
         results_txt = _format_results_to_text(all_results)
@@ -122,31 +204,30 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         # current_fig: [map, results_img, text, results_meta_for_download]
         top_results_meta = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"], "score": r["score"]} for r in results]
         yield (
-            gr.update(visible=False),
             gallery_items,
             status_msg,
             fig_results,
             [geo_dist_map, fig_results, results_txt, top_results_meta, model_name],
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        yield None, None, f"Error: {e!s}", None, None, None, None
+        yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
 def search_image(model_manager, image_input, threshold, model_name, filter_options=None, multiband_data=None):
     """Search satellite imagery using image query."""
     model, error = _get_model_and_error(model_manager, model_name)
     if error:
-        yield None, None, error, None, None, None, None
+        yield gr.update(), error, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     if image_input is None:
-        yield None, None, "Please upload an image.", None, None, None, None
+        yield gr.update(), "Please upload an image.", gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     try:
@@ -154,7 +235,7 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
 
         # 1. Encode Image
         # For multi-spectral models: require multiband data
-        yield None, None, "Encoding image...", None, None, None, None
+        yield gr.update(), "Encoding image...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         # Determine if the model needs multi-spectral input
         needs_multiband = getattr(model, "requires_multiband", False)
@@ -169,18 +250,17 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
                 image_features = model.encode_image(multiband_data)
             else:
                 yield (
-                    None,
-                    None,
+                    gr.update(),
                     (
                         f"⚠️ {model_name} requires multi-spectral Sentinel-2 input.\n\n"
                         "RGB images are NOT compatible with this model's image retrieval.\n"
                         "Please use 'Download Image by Geolocation' to obtain a multi-band image first,\n"
                         "or switch to an RGB-capable model for image retrieval."
                     ),
-                    None,
-                    None,
-                    None,
-                    None,
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
                 )
                 return
         else:
@@ -188,51 +268,56 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
         timings["Encoding"] = time.time() - t0
 
         if image_features is None:
-            yield None, None, "Model does not support image encoding.", None, None, None, None
+            yield gr.update(), "Model does not support image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         # 2. Search
-        yield None, None, "Encoding image... ✓\nRetrieving similar images...", None, None, None, None
+        yield gr.update(), "Encoding image... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(image_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
+        if probs is None:
+            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
+            return
+
         # Apply post-search filters (time range, geo, etc.)
         df_embed = model.df_embed
-        filtered_indices, top_indices, df_for_geo, probs_for_geo = apply_filters(
+        filtered_indices, top_indices, df_for_geo, probs_for_geo, extra_warnings = apply_filters(
             df_embed, probs, filtered_indices, top_indices, filter_options
         )
 
         # Show geographic distribution (not timed)
-        geo_dist_map, df_filtered = plot_geographic_distribution(
-            df_for_geo, probs_for_geo, threshold / 1000.0, title=f"Similarity to Input Image ({model_name})"
+        geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
+            df_for_geo, probs_for_geo, title=f"Similarity to Input Image ({model_name})"
         )
+        if map_warning:
+            extra_warnings.append(map_warning)
 
         # Handle 0 results after filtering
         if len(top_indices) == 0:
-            status_msg = (
-                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold."
+            status_msg = _append_warnings(
+                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
+                extra_warnings,
             )
             yield (
-                gr.update(visible=False),
                 [],
                 status_msg,
                 None,
                 [geo_dist_map],
                 df_filtered,
-                gr.update(value=geo_dist_map, visible=True),
+                gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
             )
             return
 
         # 3. Download Images (display always uses thumbnail for gallery)
         yield (
-            gr.update(visible=False),
             None,
             "Encoding image... ✓\nRetrieving similar images... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         display_indices = top_indices[:DISPLAY_TOP_K]
@@ -241,13 +326,12 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
 
         # 4. Visualize - keep geo_dist_map visible
         yield (
-            gr.update(visible=False),
             None,
             "Encoding image... ✓\nRetrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         fig_results = plot_top5_overview(image_input, results, query_info="Image Query")
@@ -256,28 +340,29 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
 
         # 5. Generate Final Status
         timing_str = f"Encoding {timings['Encoding']:.1f}s, Retrieval {timings['Retrieval']:.1f}s, Download {timings['Download']:.1f}s, Visualization {timings['Visualization']:.1f}s\n\n"
-        status_msg = timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results)
+        status_msg = _append_warnings(
+            timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results), extra_warnings
+        )
 
         all_results = _get_all_results_metadata(model, filtered_indices, probs)
-        results_txt = _format_results_to_text(all_results[:50])
+        results_txt = _format_results_to_text(all_results)
 
         # current_fig: [map, results_img, text, results_meta_for_download]
         top_results_meta = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"], "score": r["score"]} for r in results]
         yield (
-            gr.update(visible=False),
             gallery_items,
             status_msg,
             fig_results,
             [geo_dist_map, fig_results, results_txt, top_results_meta, model_name],
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        yield None, None, f"Error: {e!s}", None, None, None, None
+        yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
 def search_location(model_manager, lat, lon, threshold, filter_options=None):
@@ -285,80 +370,85 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
     model_name = "SatCLIP"
     model, error = _get_model_and_error(model_manager, model_name)
     if error:
-        yield None, None, error, None, None, None, None
+        yield gr.update(), error, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     try:
         timings = {}
 
+        # Validate location input before encoding (avoids raw float(None) TypeError)
+        loc_error = _validate_lat_lon(lat, lon)
+        if loc_error:
+            yield gr.update(), loc_error, gr.update(), gr.update(), gr.update(), gr.update()
+            return
+
         # 1. Encode Location
-        yield None, None, "Encoding location...", None, None, None, None
+        yield gr.update(), "Encoding location...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         loc_features = model.encode_location(float(lat), float(lon))
         timings["Encoding"] = time.time() - t0
 
         if loc_features is None:
-            yield None, None, "Location encoding failed.", None, None, None, None
+            yield gr.update(), "Location encoding failed.", gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         # 2. Search
-        yield None, None, "Encoding location... ✓\nRetrieving similar images...", None, None, None, None
+        yield gr.update(), "Encoding location... ✓\nRetrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
         t0 = time.time()
         probs, filtered_indices, top_indices = model.search(loc_features, top_percent=threshold / 1000.0)
         timings["Retrieval"] = time.time() - t0
 
+        if probs is None:
+            yield gr.update(), "Search failed (embeddings missing?).", gr.update(), gr.update(), gr.update(), gr.update()
+            return
+
         # Apply post-search filters (time range, geo, etc.)
         df_embed = model.df_embed
-        filtered_indices, top_indices, df_for_geo, probs_for_geo = apply_filters(
+        filtered_indices, top_indices, df_for_geo, probs_for_geo, extra_warnings = apply_filters(
             df_embed, probs, filtered_indices, top_indices, filter_options
         )
 
         # 3. Generate Distribution Map (not timed for location distribution)
         yield (
-            None,
-            None,
+            gr.update(),
             "Encoding location... ✓\nRetrieving similar images... ✓\nGenerating distribution map...",
-            None,
-            None,
-            None,
-            None,
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
         )
-        top_10_indices = top_indices[:10]
-        top_10_results = []
-        for idx in top_10_indices:
-            row = df_embed.iloc[idx]
-            top_10_results.append({"lat": row["centre_lat"], "lon": row["centre_lon"]})
 
         # Show geographic distribution (not timed)
-        geo_dist_map, df_filtered = plot_geographic_distribution(
-            df_for_geo, probs_for_geo, threshold / 1000.0, title=f"Similarity to Location ({lat}, {lon})"
+        geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
+            df_for_geo, probs_for_geo, title=f"Similarity to Location ({lat}, {lon})"
         )
+        if map_warning:
+            extra_warnings.append(map_warning)
 
         # Handle 0 results after filtering
         if len(top_indices) == 0:
-            status_msg = (
-                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold."
+            status_msg = _append_warnings(
+                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
+                extra_warnings,
             )
             yield (
-                gr.update(visible=False),
                 [],
                 status_msg,
                 None,
                 [geo_dist_map],
                 df_filtered,
-                gr.update(value=geo_dist_map, visible=True),
+                gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
             )
             return
 
         # 4. Download Images
         yield (
-            gr.update(visible=False),
             None,
             "Encoding location... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         display_indices = top_indices[:DISPLAY_TOP_K]
@@ -381,13 +471,12 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
 
         # 5. Visualize - keep geo_dist_map visible
         yield (
-            gr.update(visible=False),
             None,
             "Encoding location... ✓\nRetrieving similar images... ✓\nGenerating distribution map... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         fig_results = plot_top5_overview(query_tile, results, query_info=f"Loc: {lat},{lon}")
@@ -396,7 +485,9 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
 
         # 6. Generate Final Status
         timing_str = f"Encoding {timings['Encoding']:.1f}s, Retrieval {timings['Retrieval']:.1f}s, Download {timings['Download']:.1f}s, Visualization {timings['Visualization']:.1f}s\n\n"
-        status_msg = timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results)
+        status_msg = _append_warnings(
+            timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results), extra_warnings
+        )
 
         all_results = _get_all_results_metadata(model, filtered_indices, probs)
         results_txt = _format_results_to_text(all_results)
@@ -404,28 +495,36 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
         # current_fig: [map, results_img, text, results_meta_for_download]
         top_results_meta = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"], "score": r["score"]} for r in results]
         yield (
-            gr.update(visible=False),
             gallery_items,
             status_msg,
             fig_results,
             [geo_dist_map, fig_results, results_txt, top_results_meta, model_name],
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        yield None, None, f"Error: {e!s}", None, None, None, None
+        yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
-def _normalize_scores(scores):
-    """Min-max normalize scores to [0, 1] range."""
+def _normalize_scores(scores, modality=None):
+    """Min-max normalize scores to [0, 1] range.
+
+    Returns:
+        tuple: (normalized_scores, warning). ``warning`` is a human-readable
+            string when all scores are (near-)constant — in that degenerate
+            case the modality contributes no discrimination and zeros are
+            returned — otherwise None.
+    """
     s_min, s_max = scores.min(), scores.max()
     if s_max - s_min < 1e-9:
-        return np.zeros_like(scores)
-    return (scores - s_min) / (s_max - s_min)
+        label = modality or "Modality"
+        warning = f"Warning: {label} scores are constant, contributing no discrimination."
+        return np.zeros_like(scores), warning
+    return (scores - s_min) / (s_max - s_min), None
 
 
 def search_mixed(
@@ -440,7 +539,7 @@ def search_mixed(
     threshold,
     model_name,
     filter_options=None,
-    multiband_data=None,
+    use_native_joint=True,
 ):
     """Mixed search combining text, image, and location modalities.
 
@@ -451,73 +550,64 @@ def search_mixed(
         timings = {}
 
         # Determine which modalities are active (weight > 0 and input provided)
-        use_text = weight_text > 0 and query_text and query_text.strip()
+        use_text = bool(weight_text > 0 and query_text and query_text.strip())
         use_image = weight_image > 0 and query_image is not None
         use_location = weight_location > 0 and lat is not None and lon is not None
 
         if not use_text and not use_image and not use_location:
             yield (
-                None,
-                None,
+                gr.update(),
                 "Please provide at least one query (text, image, or location) with weight > 0.",
-                None,
-                None,
-                None,
-                None,
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
             )
             return
 
         # Get models
         text_image_model, error = _get_model_and_error(model_manager, model_name)
         if error and (use_text or use_image):
-            yield None, None, error, None, None, None, None
+            yield gr.update(), error, gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         satclip_model, error = _get_model_and_error(model_manager, "SatCLIP")
         if error and use_location:
-            yield None, None, f"SatCLIP required for location search: {error}", None, None, None, None
+            yield gr.update(), f"SatCLIP required for location search: {error}", gr.update(), gr.update(), gr.update(), gr.update()
             return
 
         # Determine the reference df_embed (use the one with most samples or text_image_model's)
         if use_text or use_image:
+            if text_image_model.df_embed is None:
+                yield gr.update(), f"Model {model_name} embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                return
             df_ref = text_image_model.df_embed
             ref_model_name = model_name
         else:
+            if satclip_model.df_embed is None:
+                yield gr.update(), "SatCLIP embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                return
             df_ref = satclip_model.df_embed
             ref_model_name = "SatCLIP"
 
-        # If using location AND (text or image), we need to align product_ids
+        # If using location AND (text or image), we need to align on grid cells
         need_alignment = use_location and (use_text or use_image)
 
         if need_alignment:
-            # Find intersection of product_ids
-            pids_ti = set(text_image_model.df_embed["product_id"].values)
-            pids_loc = set(satclip_model.df_embed["product_id"].values)
-            common_pids = pids_ti & pids_loc
-
-            if len(common_pids) == 0:
-                yield (
-                    None,
-                    None,
-                    "No common product IDs between models. Cannot perform mixed search.",
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                return
-
-            # Create aligned indices
             df_ti = text_image_model.df_embed
             df_loc = satclip_model.df_embed
+            if df_ti is None or df_loc is None:
+                missing = model_name if df_ti is None else "SatCLIP"
+                yield gr.update(), f"Model {missing} embeddings not loaded (metadata missing). Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                return
 
-            # Build pid to index mapping
-            ti_pid_to_idx = {pid: idx for idx, pid in enumerate(df_ti["product_id"].values)}
-            loc_pid_to_idx = {pid: idx for idx, pid in enumerate(df_loc["product_id"].values)}
-
-            common_pids_list = list(common_pids)
-            ti_indices = np.array([ti_pid_to_idx[pid] for pid in common_pids_list])
-            loc_indices = np.array([loc_pid_to_idx[pid] for pid in common_pids_list])
+            # Align on grid_cell: unique per row within each embedding table and
+            # consistent across model sets (product_id has ~13% duplicates).
+            try:
+                ti_indices, loc_indices = _align_on_grid_cell(df_ti, df_loc)
+            except ValueError as e:
+                yield gr.update(), str(e), gr.update(), gr.update(), gr.update(), gr.update()
+                return
 
             # Use text_image_model's df for result display
             df_ref = df_ti.iloc[ti_indices].reset_index(drop=True)
@@ -541,70 +631,118 @@ def search_mixed(
         w_location = weight_location / total_weight if use_location else 0
 
         status_parts = []
+        score_warnings = []
 
-        # --- Encode and compute text scores ---
-        if use_text:
-            yield None, None, "Encoding text...", None, None, None, None
+        # --- Native text+image joint encoding (Qwen3VL style) ---
+        use_native_joint = (
+            use_native_joint
+            and use_text
+            and use_image
+            and not use_location
+            and _model_supports_native_joint_encoding(text_image_model)
+        )
+
+        if use_native_joint:
+            yield gr.update(), "Encoding text and image jointly...", gr.update(), gr.update(), gr.update(), gr.update()
             t0 = time.time()
-            text_features = text_image_model.encode_text(query_text)
-            timings["Text Encoding"] = time.time() - t0
+            joint_features = text_image_model.encode_text_and_image(query_text, query_image)
+            timings["Joint Encoding"] = time.time() - t0
 
-            if text_features is None:
-                yield None, None, f"Model {model_name} does not support text encoding.", None, None, None, None
+            if joint_features is None:
+                yield gr.update(), f"Model {model_name} does not support joint text+image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
                 return
 
-            # Compute similarity
-            embeddings = text_image_model.image_embeddings.cpu().numpy()
-            if need_alignment:
-                embeddings = embeddings[ti_indices]
-            text_scores = (embeddings @ text_features.cpu().numpy().T).squeeze()
-            text_scores = _normalize_scores(text_scores)
-            final_scores += w_text * text_scores
-            status_parts.append(f"Text (w={w_text:.2f})")
-
-        # --- Encode and compute image scores ---
-        if use_image:
-            status_msg = "Encoding text... ✓\n" if use_text else ""
-            yield None, None, status_msg + "Encoding image...", None, None, None, None
-            t0 = time.time()
-            image_features = text_image_model.encode_image(query_image)
-            timings["Image Encoding"] = time.time() - t0
-
-            if image_features is None:
-                yield None, None, f"Model {model_name} does not support image encoding.", None, None, None, None
+            if text_image_model.image_embeddings is None:
+                yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
                 return
-
-            # Compute similarity
             embeddings = text_image_model.image_embeddings.cpu().numpy()
-            if need_alignment:
-                embeddings = embeddings[ti_indices]
-            image_scores = (embeddings @ image_features.cpu().numpy().T).squeeze()
-            image_scores = _normalize_scores(image_scores)
-            final_scores += w_image * image_scores
-            status_parts.append(f"Image (w={w_image:.2f})")
+            joint_scores = (embeddings @ joint_features.cpu().numpy().T).ravel()
+            final_scores = joint_scores
+            status_parts.append("Text+Image (joint)")
+        else:
+            # --- Encode and compute text scores ---
+            if use_text:
+                yield gr.update(), "Encoding text...", gr.update(), gr.update(), gr.update(), gr.update()
+                t0 = time.time()
+                text_features = text_image_model.encode_text(query_text)
+                timings["Text Encoding"] = time.time() - t0
+
+                if text_features is None:
+                    yield gr.update(), f"Model {model_name} does not support text encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+                    return
+
+                # Compute similarity
+                if text_image_model.image_embeddings is None:
+                    yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                    return
+                embeddings = text_image_model.image_embeddings.cpu().numpy()
+                if need_alignment:
+                    embeddings = embeddings[ti_indices]
+                text_scores = (embeddings @ text_features.cpu().numpy().T).ravel()
+                text_scores, warn = _normalize_scores(text_scores, modality="Text")
+                if warn:
+                    score_warnings.append(warn)
+                final_scores += w_text * text_scores
+                status_parts.append(f"Text (w={w_text:.2f})")
+
+            # --- Encode and compute image scores ---
+            if use_image:
+                status_msg = "Encoding text... ✓\n" if use_text else ""
+                yield gr.update(), status_msg + "Encoding image...", gr.update(), gr.update(), gr.update(), gr.update()
+                t0 = time.time()
+                image_features = text_image_model.encode_image(query_image)
+                timings["Image Encoding"] = time.time() - t0
+
+                if image_features is None:
+                    yield gr.update(), f"Model {model_name} does not support image encoding.", gr.update(), gr.update(), gr.update(), gr.update()
+                    return
+
+                # Compute similarity
+                if text_image_model.image_embeddings is None:
+                    yield gr.update(), f"Model {model_name} image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                    return
+                embeddings = text_image_model.image_embeddings.cpu().numpy()
+                if need_alignment:
+                    embeddings = embeddings[ti_indices]
+                image_scores = (embeddings @ image_features.cpu().numpy().T).ravel()
+                image_scores, warn = _normalize_scores(image_scores, modality="Image")
+                if warn:
+                    score_warnings.append(warn)
+                final_scores += w_image * image_scores
+                status_parts.append(f"Image (w={w_image:.2f})")
 
         # --- Encode and compute location scores ---
         if use_location:
+            loc_error = _validate_lat_lon(lat, lon)
+            if loc_error:
+                yield gr.update(), loc_error, gr.update(), gr.update(), gr.update(), gr.update()
+                return
+
             status_msg = ""
             if use_text:
                 status_msg += "Encoding text... ✓\n"
             if use_image:
                 status_msg += "Encoding image... ✓\n"
-            yield None, None, status_msg + "Encoding location...", None, None, None, None
+            yield gr.update(), status_msg + "Encoding location...", gr.update(), gr.update(), gr.update(), gr.update()
             t0 = time.time()
             loc_features = satclip_model.encode_location(float(lat), float(lon))
             timings["Location Encoding"] = time.time() - t0
 
             if loc_features is None:
-                yield None, None, "Location encoding failed.", None, None, None, None
+                yield gr.update(), "Location encoding failed.", gr.update(), gr.update(), gr.update(), gr.update()
                 return
 
             # Compute similarity
+            if satclip_model.image_embeddings is None:
+                yield gr.update(), "SatCLIP image embeddings not loaded. Cannot perform mixed search.", gr.update(), gr.update(), gr.update(), gr.update()
+                return
             embeddings = satclip_model.image_embeddings.cpu().numpy()
             if need_alignment:
                 embeddings = embeddings[loc_indices]
-            loc_scores = (embeddings @ loc_features.cpu().numpy().T).squeeze()
-            loc_scores = _normalize_scores(loc_scores)
+            loc_scores = (embeddings @ loc_features.cpu().numpy().T).ravel()
+            loc_scores, warn = _normalize_scores(loc_scores, modality="Location")
+            if warn:
+                score_warnings.append(warn)
             final_scores += w_location * loc_scores
             status_parts.append(f"Location (w={w_location:.2f})")
 
@@ -616,7 +754,7 @@ def search_mixed(
             status_msg += "Encoding image... ✓\n"
         if use_location:
             status_msg += "Encoding location... ✓\n"
-        yield None, None, status_msg + "Retrieving similar images...", None, None, None, None
+        yield gr.update(), status_msg + "Retrieving similar images...", gr.update(), gr.update(), gr.update(), gr.update()
 
         t0 = time.time()
         # Apply top-percentage threshold for the map candidate pool.
@@ -628,41 +766,43 @@ def search_mixed(
         timings["Retrieval"] = time.time() - t0
 
         # Apply post-search filters
-        filtered_indices, top_indices, df_for_geo, probs_for_geo = apply_filters(
+        filtered_indices, top_indices, df_for_geo, probs_for_geo, extra_warnings = apply_filters(
             df_ref, final_scores, filtered_indices, top_indices, filter_options
         )
+        extra_warnings = score_warnings + extra_warnings
 
         # Generate geographic distribution map
         query_info = " + ".join(status_parts)
-        geo_dist_map, df_filtered = plot_geographic_distribution(
-            df_for_geo, probs_for_geo, threshold / 1000.0, title=f"Mixed Search: {query_info}"
+        geo_dist_map, df_filtered, map_warning = _safe_plot_geographic_distribution(
+            df_for_geo, probs_for_geo, title=f"Mixed Search: {query_info}"
         )
+        if map_warning:
+            extra_warnings.append(map_warning)
 
         # Handle 0 results after filtering
         if len(top_indices) == 0:
-            status_msg = (
-                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold."
+            status_msg = _append_warnings(
+                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
+                extra_warnings,
             )
             yield (
-                gr.update(visible=False),
                 [],
                 status_msg,
                 None,
                 [geo_dist_map],
                 df_filtered,
-                gr.update(value=geo_dist_map, visible=True),
+                gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
             )
             return
 
         # --- Download images ---
         yield (
-            gr.update(visible=False),
             None,
             status_msg + "Retrieving similar images... ✓\nDownloading images...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
         display_indices = top_indices[:DISPLAY_TOP_K]
@@ -671,13 +811,12 @@ def search_mixed(
 
         # --- Visualize ---
         yield (
-            gr.update(visible=False),
             None,
             status_msg + "Retrieving similar images... ✓\nDownloading images... ✓\nGenerating visualizations...",
             None,
             None,
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
         t0 = time.time()
 
@@ -696,8 +835,18 @@ def search_mixed(
         timing_parts = [f"{k} {v:.1f}s" for k, v in timings.items()]
         timing_str = ", ".join(timing_parts) + "\n\n"
 
-        weight_info = f"Weights: Text={w_text:.2f}, Image={w_image:.2f}, Location={w_location:.2f}\n"
-        status_msg = timing_str + weight_info + _generate_status_msg(len(filtered_indices), threshold / 100.0, results)
+        if use_native_joint:
+            # Native joint encoding ignores w_text/w_image; scores are raw cosine similarity.
+            score_info = "Native joint encoding (weights not applied); scores are raw cosine similarity.\n"
+        else:
+            score_info = (
+                f"Weights: Text={w_text:.2f}, Image={w_image:.2f}, Location={w_location:.2f}\n"
+                "Scores are min-max normalized fused scores.\n"
+            )
+        status_msg = _append_warnings(
+            timing_str + score_info + _generate_status_msg(len(filtered_indices), threshold / 100.0, results),
+            extra_warnings,
+        )
 
         # Prepare results for download
         all_results = []
@@ -712,24 +861,23 @@ def search_mixed(
                 }
             )
         all_results.sort(key=lambda x: x["score"], reverse=True)
-        results_txt = _format_results_to_text(all_results[:50])
+        results_txt = _format_results_to_text(all_results)
 
         top_results_meta = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"], "score": r["score"]} for r in results]
         yield (
-            gr.update(visible=False),
             gallery_items,
             status_msg,
             fig_results,
             [geo_dist_map, fig_results, results_txt, top_results_meta, ref_model_name],
             df_filtered,
-            gr.update(value=geo_dist_map, visible=True),
+            gr.update(value=geo_dist_map, visible=geo_dist_map is not None),
         )
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        yield None, None, f"Error: {e!s}", None, None, None, None
+        yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
 # Helper functions (moved from app.py)

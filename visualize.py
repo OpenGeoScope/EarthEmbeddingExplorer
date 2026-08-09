@@ -18,65 +18,75 @@ def plot_global_map_static(df, lat_col="centre_lat", lon_col="centre_lon"):
     df_clean[lon_col] = pd.to_numeric(df_clean[lon_col], errors="coerce")
     df_clean = df_clean.dropna(subset=[lat_col, lon_col])
 
-    # Sample every 3rd item if too large
+    # Sample to at most ~125k points so rendering stays fast for larger
+    # datasets. df_vis is also used for map-click snapping
+    # (ui/callbacks.handle_map_click), so do not lower this cap without
+    # checking snap precision.
     if len(df_clean) > 250000:
-        # Calculate step size to get approximately 50000 samples
-        step = 2
-        # step = max(1, len(df_clean) // 50000)
-        df_vis = df_clean.iloc[::step]  # Take every 'step'-th row
+        step = max(2, len(df_clean) // 125000)
+        df_vis = df_clean.iloc[::step]
         print(f"Sampled {len(df_vis)} points from {len(df_clean)} total points (step={step}) for visualization.")
     else:
         df_vis = df_clean
 
-    # Create static map using Matplotlib
-    # Use a fixed size and DPI to make coordinate mapping easier
-    # Width=800px, Height=400px -> Aspect Ratio 2:1 (matches 360:180)
-    # Increased DPI for better quality: 8x300 = 2400px width
-    fig = Figure(figsize=(10, 5), dpi=350)
-    ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+    def _render(with_basemap):
+        """Render the map; NaturalEarth features are optional (downloaded on demand)."""
+        # Create static map using Matplotlib
+        # Use a fixed size and DPI to make coordinate mapping easier
+        # figsize 10x5 @ dpi 350 -> 3500x1750 px, aspect 2:1.
+        # ui/callbacks._map_axes_pixel_bbox relies on this exact layout for click mapping.
+        fig = Figure(figsize=(10, 5), dpi=350)
+        ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
 
-    # Add land + coastline (Cartopy) - Use 50m resolution to show small islands
-    land_50m = cfeature.NaturalEarthFeature("physical", "land", "50m")
-    coastline_50m = cfeature.NaturalEarthFeature("physical", "coastline", "50m")
-    ax.add_feature(land_50m, facecolor="lightgray", edgecolor="none", alpha=0.2)
-    ax.add_feature(coastline_50m, facecolor="none", linewidth=0.8, alpha=0.5)
+        if with_basemap:
+            # Add land + coastline (Cartopy) - Use 50m resolution to show small islands
+            land_50m = cfeature.NaturalEarthFeature("physical", "land", "50m")
+            coastline_50m = cfeature.NaturalEarthFeature("physical", "coastline", "50m")
+            ax.add_feature(land_50m, facecolor="lightgray", edgecolor="none", alpha=0.2)
+            ax.add_feature(coastline_50m, facecolor="none", linewidth=0.8, alpha=0.5)
 
-    # Plot points - Use blue to match user request
-    ax.scatter(
-        df_vis[lon_col],
-        df_vis[lat_col],
-        s=0.2,
-        c="blue",
-        marker="o",
-        edgecolors="none",
-        # alpha=0.6,
-        transform=ccrs.PlateCarree(),
-        label="Samples",
-    )
+        # Plot points - Use blue to match user request
+        ax.scatter(
+            df_vis[lon_col],
+            df_vis[lat_col],
+            s=0.2,
+            c="blue",
+            marker="o",
+            edgecolors="none",
+            # alpha=0.6,
+            transform=ccrs.PlateCarree(),
+            label="Samples",
+        )
 
-    # Set limits to full world
-    ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
+        # Set limits to full world
+        ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
 
-    # Remove axes and margins
-    ax.axis("off")
-    # fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        # Remove axes and margins
+        ax.axis("off")
+        # fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
 
-    # Add Legend
-    ax.legend(loc="lower left", markerscale=5, frameon=True, facecolor="white", framealpha=0.9)
-    fig.tight_layout()
+        # Add Legend
+        ax.legend(loc="lower left", markerscale=5, frameon=True, facecolor="white", framealpha=0.9)
+        fig.tight_layout()
 
-    # Save to PIL
-    buf = BytesIO()
-    fig.savefig(buf, format="png", facecolor="white")
-    buf.seek(0)
-    img = Image.open(buf)
+        # Save to PIL
+        buf = BytesIO()
+        fig.savefig(buf, format="png", facecolor="white")
+        buf.seek(0)
+        return Image.open(buf)
+
+    try:
+        img = _render(with_basemap=True)
+    except Exception as e:
+        # NaturalEarth features are downloaded at render time; when offline this
+        # fails, so fall back to a plain scatter plot without the basemap.
+        print(f"⚠️ Basemap unavailable ({e}); rendering map without NaturalEarth features.")
+        img = _render(with_basemap=False)
 
     return img, df_vis
 
 
-def plot_geographic_distribution(
-    df, scores, threshold, lat_col="centre_lat", lon_col="centre_lon", title="Search Results"
-):
+def plot_geographic_distribution(df, scores, lat_col="centre_lat", lon_col="centre_lon", title="Search Results"):
     if df is None or scores is None:
         return None, None
 
@@ -88,48 +98,59 @@ def plot_geographic_distribution(
     # The threshold was already applied in model.search() and apply_filters()
     df_filtered = df_vis
 
-    fig = Figure(figsize=(10, 5), dpi=350)
-    ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+    def _render(with_basemap):
+        """Render the distribution map; NaturalEarth features are optional (downloaded on demand)."""
+        fig = Figure(figsize=(10, 5), dpi=350)
+        ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
 
-    # Add land + coastline (Cartopy) - Use 10m resolution to show small islands
-    land_10m = cfeature.NaturalEarthFeature("physical", "land", "10m")
-    coastline_10m = cfeature.NaturalEarthFeature("physical", "coastline", "10m")
-    ax.add_feature(land_10m, facecolor="lightgray", edgecolor="none", alpha=0.2)
-    ax.add_feature(coastline_10m, facecolor="none", linewidth=0.8, alpha=0.5)
+        if with_basemap:
+            # Add land + coastline (Cartopy) - Use 10m resolution to show small islands
+            land_10m = cfeature.NaturalEarthFeature("physical", "land", "10m")
+            coastline_10m = cfeature.NaturalEarthFeature("physical", "coastline", "10m")
+            ax.add_feature(land_10m, facecolor="lightgray", edgecolor="none", alpha=0.2)
+            ax.add_feature(coastline_10m, facecolor="none", linewidth=0.8, alpha=0.5)
 
-    # 2. Plot Search Results with color map
-    label_text = f"{len(df_filtered)} Results"
-    sc = ax.scatter(
-        df_filtered[lon_col],
-        df_filtered[lat_col],
-        c=df_filtered["score"],
-        cmap="Reds",
-        s=0.35,
-        alpha=0.8,
-        transform=ccrs.PlateCarree(),
-        label=label_text,
-    )
+        # 2. Plot Search Results with color map
+        label_text = f"{len(df_filtered)} Results"
+        sc = ax.scatter(
+            df_filtered[lon_col],
+            df_filtered[lat_col],
+            c=df_filtered["score"],
+            cmap="Reds",
+            s=0.35,
+            alpha=0.8,
+            transform=ccrs.PlateCarree(),
+            label=label_text,
+        )
 
-    ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
-    ax.axis("off")
-    # fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
+        ax.axis("off")
+        # fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
 
-    # Add Colorbar
-    cbar = fig.colorbar(sc, ax=ax, fraction=0.025, pad=0.02)
-    cbar.set_label("Similarity Score")
+        # Add Colorbar
+        cbar = fig.colorbar(sc, ax=ax, fraction=0.025, pad=0.02)
+        cbar.set_label("Similarity Score")
 
-    # Add Legend
-    ax.legend(loc="lower left", markerscale=3, frameon=True, facecolor="white", framealpha=0.9)
+        # Add Legend
+        ax.legend(loc="lower left", markerscale=3, frameon=True, facecolor="white", framealpha=0.9)
 
-    fig.tight_layout()
+        fig.tight_layout()
 
-    # Add title (optional, might overlap)
-    # ax.set_title(title)
+        # Add title (optional, might overlap)
+        # ax.set_title(title)
 
-    buf = BytesIO()
-    fig.savefig(buf, format="png", facecolor="white")
-    buf.seek(0)
-    img = Image.open(buf)
+        buf = BytesIO()
+        fig.savefig(buf, format="png", facecolor="white")
+        buf.seek(0)
+        return Image.open(buf)
+
+    try:
+        img = _render(with_basemap=True)
+    except Exception as e:
+        # NaturalEarth features are downloaded at render time; when offline this
+        # fails, so fall back to a plain scatter plot without the basemap.
+        print(f"⚠️ Basemap unavailable ({e}); rendering map without NaturalEarth features.")
+        img = _render(with_basemap=False)
 
     return img, df_filtered
 
@@ -162,39 +183,6 @@ def plot_top5_overview(query_image, results, query_info="Query"):
     top_k = len(results)
     if top_k == 0:
         return None
-
-    # Special case for Text Search (query_image is None) with 10 results
-    # User requested: "Middle box top and bottom each 5 photos"
-    if query_image is None and top_k == 10:
-        cols = 5
-        rows = 2
-        fig = Figure(figsize=(4 * cols, 4 * rows))  # Square-ish aspect ratio per image
-        FigureCanvasAgg(fig)
-
-        for i, res in enumerate(results):
-            # Calculate row and col
-            _r = i // 5
-            _c = i % 5
-
-            # Add subplot (1-based index)
-            ax = fig.add_subplot(rows, cols, i + 1)
-
-            img_384 = res.get("image_384")
-            if img_384:
-                ax.imshow(img_384)
-                ax.set_title(
-                    f"Rank {i + 1}\nScore: {res['score']:.4f}\n({res['lat']:.2f}, {res['lon']:.2f})", fontsize=9
-                )
-            else:
-                ax.text(0.5, 0.5, "N/A", ha="center", va="center")
-            ax.axis("off")
-
-        fig.tight_layout()
-
-        buf = BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        buf.seek(0)
-        return Image.open(buf)
 
     # Default behavior (for Image Search or other counts)
     # Layout:

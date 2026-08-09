@@ -288,7 +288,7 @@ class DINOv2Model:
             query_features = F.normalize(query_features, dim=-1)
 
             # Cosine similarity
-            similarity = (self.image_embeddings @ query_features.T).squeeze()
+            similarity = (self.image_embeddings @ query_features.T).squeeze(-1)
             similarities = similarity.detach().cpu().numpy()
 
             sorted_indices = np.argsort(similarities)[::-1]

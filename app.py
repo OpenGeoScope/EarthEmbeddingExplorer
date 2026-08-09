@@ -40,7 +40,7 @@ def _get_requested_models():
         "--models",
         type=str,
         default=None,
-        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,SatCLIP,FarSLIP,Clay,OlmoEarth.",
+        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,TIPSv2,SatCLIP,FarSLIP,Clay,OlmoEarth,Qwen3VL.",
     )
     args, _ = parser.parse_known_args()
     return args.models or os.getenv("EEX_MODELS")
@@ -63,23 +63,20 @@ model_manager = ModelManager(selected_models=_get_requested_models())
 models = model_manager.models  # Keep for backward compatibility with existing code
 print(f"Loaded models: {', '.join(model_manager.get_available_models()) or 'none'}")
 
-TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP"])
-IMAGE_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"])
-MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP"])
+TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL"])
+IMAGE_MODELS = _ordered_available_models(
+    ["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"]
+)
+MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
 
-INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款工具跨模态遥感图像检索工具，允许您使用自然语言描述、图像、地理位置或简单地在地图上点击来搜索地球的卫星图像。例如，您可以输入“热带雨林”或“有城市的海岸线”，系统就会找到地球上与您描述相符的位置。然后，它会在世界地图上可视化这些位置的卫星图像嵌入和您的输入嵌入的相似度，并显示最相似的图像。您可以下载检索结果和最相似的图像。"
+INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款跨模态遥感图像检索工具。您可以用自然语言描述、上传图像、输入经纬度，或直接在地图上点击，来搜索全球的卫星影像。例如输入“热带雨林”或“有城市的海岸线”，系统会找到地球上与您描述相符的位置，在世界地图上可视化这些位置与查询的相似度，并展示最相似的图像。检索结果和图像均可下载。"
 INTRODUCTION_EN = 'EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.'
 
 if DOWNLOAD_ENDPOINT == "modelscope.cn":
     introduction = INTRODUCTION_ZH + "<br>" + INTRODUCTION_EN
 else:
     introduction = INTRODUCTION_EN
-
-
-def get_active_model(model_name):
-    """Wrapper for backward compatibility."""
-    return model_manager.get_model(model_name)
 
 
 # Wrapper functions for UI callbacks (pass models dict to extracted functions)
@@ -185,7 +182,7 @@ div.form:has(.filter-checkbox) {
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
                         choices=IMAGE_MODELS,
-                        value=_default_model(IMAGE_MODELS, "Clay"),
+                        value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
 
@@ -254,14 +251,22 @@ div.form:has(.filter-checkbox) {
                 with gr.TabItem("Mixed Search") as tab_mixed:
                     gr.Markdown("""
                     ### Multi-Modal Fusion Search
-                    Combine **Text**, **Image**, and **Location** queries with adjustable weights.
-                    Text/Image use FarSLIP or SigLIP; Location uses SatCLIP. Scores are normalized and fused.
+                    Combine **Text**, **Image**, and (optionally) **Location** queries with adjustable weights.
+                    Text/Image use FarSLIP, SigLIP, TIPSv2, or Qwen3VL; Location uses SatCLIP when available.
+                    For Qwen3VL, when both Text and Image are provided (without Location),
+                    native joint encoding is used by default.
                     """)
 
                     model_selector_mixed = gr.Dropdown(
                         choices=MIXED_TEXT_IMAGE_MODELS,
                         value=_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP"),
                         label="Model for Text/Image",
+                    )
+
+                    use_native_joint_checkbox = gr.Checkbox(
+                        label="Use native text+image joint encoding (Qwen3VL only)",
+                        value=True,
+                        visible=(_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP") == "Qwen3VL"),
                     )
 
                     gr.Markdown("#### 📝 Text Query")
@@ -294,6 +299,11 @@ div.form:has(.filter-checkbox) {
                     )
 
                     gr.Markdown("#### 📍 Location Query")
+                    mixed_enable_location = gr.Checkbox(
+                        label="Enable Location Query (uses SatCLIP)",
+                        value=False,
+                        interactive=HAS_SATCLIP,
+                    )
                     btn_reset_map_mixed = gr.Button("🔄 Reset Map to Global View", variant="secondary", size="sm")
                     with gr.Row():
                         mixed_lat = gr.Number(label="Latitude", interactive=True)
@@ -304,10 +314,14 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("#### ⚖️ Fusion Weights")
                     gr.Markdown("_Weights are auto-normalized. Set weight to 0 to disable a modality._")
                     with gr.Row():
-                        weight_text = gr.Slider(minimum=0, maximum=1, value=0.33, step=0.01, label="Text Weight")
-                        weight_image = gr.Slider(minimum=0, maximum=1, value=0.33, step=0.01, label="Image Weight")
+                        weight_text = gr.Slider(minimum=0, maximum=1, value=0.5, step=0.01, label="Text Weight")
+                        weight_image = gr.Slider(minimum=0, maximum=1, value=0.5, step=0.01, label="Image Weight")
                         weight_location = gr.Slider(
-                            minimum=0, maximum=1, value=0.33, step=0.01, label="Location Weight"
+                            minimum=0,
+                            maximum=1,
+                            value=0.33 if HAS_SATCLIP else 0.0,
+                            step=0.01,
+                            label="Location Weight",
                         )
 
                     search_mixed_btn = gr.Button(
@@ -347,7 +361,6 @@ div.form:has(.filter-checkbox) {
             plot_map = gr.Image(
                 label="Geographical Distribution", type="pil", interactive=False, height=400, width=800, visible=True
             )
-            plot_map_interactive = gr.Plot(label="Geographical Distribution (Interactive)", visible=False)
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
@@ -360,8 +373,9 @@ div.form:has(.filter-checkbox) {
     # NOT when the image was programmatically set by the download button.
     def _clear_multiband_on_upload(img, source):
         if source == "download":
-            # Image was set by the download button — keep multiband, reset source flag
-            return gr.update(), "download"
+            # Image was set by the download button — keep multiband, then reset
+            # the source flag so a later manual upload is not misclassified.
+            return gr.update(), "upload"
         # User manually uploaded/changed image — discard stale multiband data
         return None, "upload"
 
@@ -370,7 +384,7 @@ div.form:has(.filter-checkbox) {
     )
 
     # Initial Load
-    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state, plot_map_interactive])
+    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
 
     # Reset Map Buttons
     btn_reset_map_img.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
@@ -484,11 +498,16 @@ div.form:has(.filter-checkbox) {
         f_lat_max,
         f_lon_min,
         f_lon_max,
-        multiband_data=None,
+        use_native_joint,
+        enable_location,
     ):
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
+        if not enable_location:
+            # Coordinates may be leftover from a map click; without the explicit
+            # opt-in they must not silently join the fusion (location weight > 0).
+            lat, lon = None, None
         yield from _search_mixed(
             model_manager,
             query_text,
@@ -501,8 +520,18 @@ div.form:has(.filter-checkbox) {
             threshold,
             model_name,
             fo,
-            multiband_data,
+            use_native_joint,
         )
+
+    # Toggle native-joint checkbox visibility based on selected mixed-search model.
+    def _toggle_native_joint(model_name):
+        return gr.update(visible=(model_name == "Qwen3VL"))
+
+    model_selector_mixed.change(
+        fn=_toggle_native_joint,
+        inputs=[model_selector_mixed],
+        outputs=[use_native_joint_checkbox],
+    )
 
     # Search Event (Text)
     search_btn.click(
@@ -514,7 +543,6 @@ div.form:has(.filter-checkbox) {
             *_filter_inputs,
         ],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -529,7 +557,6 @@ div.form:has(.filter-checkbox) {
         fn=_wrap_search_image,
         inputs=[image_input, threshold_slider, model_selector_img, *_filter_inputs, multiband_state],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -544,7 +571,6 @@ div.form:has(.filter-checkbox) {
         fn=_wrap_search_location,
         inputs=[lat_input, lon_input, threshold_slider, *_filter_inputs],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -568,10 +594,10 @@ div.form:has(.filter-checkbox) {
             threshold_slider,
             model_selector_mixed,
             *_filter_inputs,
-            multiband_state,
+            use_native_joint_checkbox,
+            mixed_enable_location,
         ],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -588,14 +614,15 @@ div.form:has(.filter-checkbox) {
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
 
-    # Tab Selection Events
+    # Tab Selection Events — re-show the map when switching tabs (a failed or
+    # empty search may have hidden it).
     def show_static_map():
-        return gr.update(visible=True), gr.update(visible=False)
+        return gr.update(visible=True)
 
-    tab_text.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_image.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_location.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_mixed.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
+    tab_text.select(fn=show_static_map, outputs=[plot_map])
+    tab_image.select(fn=show_static_map, outputs=[plot_map])
+    tab_location.select(fn=show_static_map, outputs=[plot_map])
+    tab_mixed.select(fn=show_static_map, outputs=[plot_map])
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7859, share=False)

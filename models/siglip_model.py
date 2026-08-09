@@ -314,7 +314,7 @@ class SigLIPModel:
         query_features = query_features.float()
 
         # Use Cosine Similarity directly (aligned with SigLIP_embdding.ipynb)
-        similarity = (self.image_embeddings @ query_features.T).squeeze()
+        similarity = (self.image_embeddings @ query_features.T).squeeze(-1)
         probs = similarity.detach().cpu().numpy()
 
         sorted_indices = np.argsort(probs)[::-1]

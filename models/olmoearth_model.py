@@ -330,7 +330,7 @@ class OlmoEarthModel:
             image_embeddings_norm = F.normalize(self.image_embeddings, dim=-1)
             query_features_norm = F.normalize(query_features, dim=-1)
 
-            similarity = (image_embeddings_norm @ query_features_norm.T).squeeze()
+            similarity = (image_embeddings_norm @ query_features_norm.T).squeeze(-1)
             similarities = similarity.detach().cpu().numpy()
 
             sorted_indices = np.argsort(similarities)[::-1]

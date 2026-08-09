@@ -268,7 +268,7 @@ The `generate_embeddings.py` script turns raw MajorTOM Parquet shards into embed
 1. Reads `metadata.parquet` (must contain `parquet_url` and `parquet_row`).
 2. Reads image bands from `images/part_*.parquet` row groups.
 3. For each image, looks up metadata by `grid_cell` + `product_id`.
-4. Runs `MajorTOM_Embedder.forward()` (tiling) or `_embed_single_fragment()` (pre-cropped).
+4. Runs `MajorTOM_Embedder.forward()` (tiling) or the single-fragment path (`_decode_single_fragment_row()` + `_flush_single_fragment_batch()`) for pre-cropped imagery.
 5. Outputs a GeoParquet with one row per fragment, including `embedding`, `geometry`, and metadata.
 
 **To generate embeddings for a new model:**

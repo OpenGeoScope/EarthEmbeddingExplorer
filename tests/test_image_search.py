@@ -34,16 +34,20 @@ from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.load_config import load_and_process_config
 from models.olmoearth_model import OlmoEarthModel
+from models.qwen3vl_embedding_model import Qwen3VLEmbeddingModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
+from models.tipsv2_model import TIPSv2Model
 
 MODEL_CLASS_MAP = {
     "Clay": ClayModel,
     "DINOv2": DINOv2Model,
     "FarSLIP": FarSLIPModel,
     "OlmoEarth": OlmoEarthModel,
+    "Qwen3VL": Qwen3VLEmbeddingModel,
     "SatCLIP": SatCLIPModel,
     "SigLIP": SigLIPModel,
+    "TIPSv2": TIPSv2Model,
 }
 
 
@@ -53,7 +57,7 @@ DEFAULT_LON = -63.0
 
 # All supported models — no hard-coded spectral categories.
 # A model declares itself as multi-spectral via `requires_multiband = True`.
-ALL_MODELS = {"SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"}
+ALL_MODELS = {"SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"}
 
 
 def find_nearest_product_id(model, lat, lon):
