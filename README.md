@@ -84,7 +84,7 @@ Because the original tiles are large (1068 × 1068 pixels) and the full dataset 
 The retrieval engine is powered by six complementary embedding models. Think of them as different "encoders" that map images, text, or coordinates into a shared latent space. If you are coming from remote sensing, think of them as feature extractors that turn raw pixels (and optional metadata) into comparable signatures.
 
 
-**The six models we use:**
+**The eight models we use:**
 
 | Model | Modality | Training Data | Best For |
 | :--- | :--- | :--- | :--- |
@@ -94,6 +94,8 @@ The retrieval engine is powered by six complementary embedding models. Think of 
 | **DINOv2** [7] | image only | Natural images (self-supervised) | Pure visual similarity search |
 | **Clay** [9] | image only | Multi-sensor EO (MAE self-supervised) | Multi-spectral Earth observation features |
 | **OlmoEarth** [10] | image only | Sentinel-2 L2A + 6 derived maps (self-supervised) | Pure visual similarity with spectral awareness |
+| **TIPSv2** [11] | image + text | Web image–text pairs (spatially-aware pretraining) | Open-vocabulary queries with strong patch-text alignment |
+| **Qwen3-VL-Embedding** [12] | image + text | Instruction-aware multimodal VLM embeddings | Native text+image joint encoding for mixed search |
 
 - **SigLIP** improves upon CLIP with a sigmoid loss and works well for everyday vocabulary.
 - **FarSLIP** is fine-tuned on remote-sensing captions, making it better at concepts like *"deforestation"* or *"salt evaporation ponds"*.
@@ -101,6 +103,8 @@ The retrieval engine is powered by six complementary embedding models. Think of 
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
 - **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. It captures rich geospatial features across 10 Sentinel-2 bands, making it ideal for pure visual similarity search in the remote-sensing domain.
 - **OlmoEarth** is an Earth-system foundation model trained on Sentinel-2 and derived geospatial maps. It uses a flexible multi-modal architecture and excels at capturing spectral and spatial patterns from 12-band multispectral imagery.
+- **TIPSv2** enhances patch-text alignment via patch-level distillation and an upgraded masked-image objective, giving spatially rich features that stay aligned with open-vocabulary text queries.
+- **Qwen3-VL-Embedding** is a 2B multimodal embedding model built on Qwen3-VL. Besides text and image queries, it natively encodes text+image pairs jointly, which we use for the mixed search mode.
 
 Models such as **CLIP** [2] learn to align images and text by training on massive pairs of (image, caption) data from the web. An *image encoder* compresses a photo into a vector; a *text encoder* does the same for a sentence. The key property is that semantically matching pairs end up close together in vector space, while unrelated pairs are far apart.
 
@@ -159,6 +163,8 @@ Each embedding dataset contains the vector representation of every sampled image
 | SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SatCLIP) |
 | Clay | Core-S2L2A-249k-Clay-v1.5 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-Clay-v1.5) |
 | OlmoEarth | Core-S2RGB-249k-OlmoEarth | [ModelScope](https://modelscope.cn/datasets/WeijieWu/olmoearth_embdding) |
+| TIPSv2 | Core-S2RGB-249k-TIPSv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-TIPSv2) |
+| Qwen3-VL-Embedding | Core-S2RGB-249k-Qwen3VL | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-Qwen3VL) |
 
 > **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
 
@@ -270,6 +276,8 @@ We thank the following open-source projects and datasets that made EarthEmbeddin
 - [DINOv2](https://huggingface.co/facebook/dinov2-large) — Self-supervised vision transformer
 - [Clay](https://github.com/Clay-foundation/model) — Multi-spectral Earth observation foundation model
 - [OlmoEarth](https://huggingface.co/allenai/OlmoEarth-Base-WS) — Earth-system foundation model for multimodal Earth observation
+- [TIPSv2](https://github.com/google-deepmind/tips) — Vision-language models with spatially aware patch-text alignment
+- [Qwen3-VL-Embedding](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) — Multimodal embedding model built on Qwen3-VL
 
 **Datasets:**
 - [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) — Expandable datasets for Earth observation by ESA
@@ -324,3 +332,7 @@ If you use EarthEmbeddingExplorer in your research, please cite:
 [9] Development Seed. (2024). Clay: An Open Source AI Model and Interface for Earth. *https://github.com/Clay-foundation/model*.
 
 [10] Herzog, H., et al. (2025). OlmoEarth: Stable Latent Image Modeling for Multimodal Earth Observation. *arXiv preprint arXiv:2511.13655*.
+
+[11] Cao, B., et al. (2026). TIPSv2: Advancing Vision-Language Pretraining with Enhanced Patch-Text Alignment. *arXiv preprint arXiv:2604.12012*.
+
+[12] Li, M., et al. (2026). Qwen3-VL-Embedding and Qwen3-VL-Reranker: A Unified Framework for State-of-the-Art Multimodal Retrieval and Ranking. *arXiv preprint arXiv:2601.04720*.
