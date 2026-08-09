@@ -1,13 +1,11 @@
 import importlib.util
 import os
-from typing import List, Optional, Union
 
 import numpy as np
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
 from PIL import Image
-
 
 # Fixed English retrieval instruction for text queries (instruction-aware embedding).
 # Image documents use the embedder's own default instruction ("Represent the user's input.")
@@ -55,19 +53,19 @@ class Qwen3VLEmbeddingModel:
 
     def __init__(
         self,
-        ckpt_path: Optional[str] = None,
+        ckpt_path: str | None = None,
         model_name: str = "Qwen/Qwen3-VL-Embedding-2B",
-        embedding_path: Optional[str] = None,
-        device: Optional[str] = None,
+        embedding_path: str | None = None,
+        device: str | None = None,
         image_size: int = 384,
-        repo_path: Optional[str] = None,
-        text_instruction: Optional[str] = None,
-        image_instruction: Optional[str] = None,
+        repo_path: str | None = None,
+        text_instruction: str | None = None,
+        image_instruction: str | None = None,
         use_bf16: bool = True,
         warmup_runs: int = 1,
         warmup_batch: int = 8,
-        min_pixels: Optional[int] = None,
-        max_pixels: Optional[int] = None,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
     ):
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.ckpt_path = ckpt_path
@@ -98,19 +96,37 @@ class Qwen3VLEmbeddingModel:
             self.load_embeddings()
 
     def _resolve_source(self) -> str:
-        """Return local model directory or HF/ModelScope repo id."""
-        if self.ckpt_path:
-            return self.ckpt_path
-        return self.model_name
+        """Return a local model directory, downloading first if needed.
 
-    def _resolve_scripts_path(self) -> str:
+        A valid local ``ckpt_path`` wins. Otherwise the full model repo is
+        snapshotted according to the DOWNLOAD_ENDPOINT env var (same pattern
+        as the other model wrappers) and the local cache dir is returned; the
+        snapshot also provides ``scripts/qwen3_vl_embedding.py``.
+        """
+        if self.ckpt_path and os.path.exists(self.ckpt_path):
+            return self.ckpt_path
+
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
+        if endpoint in ("huggingface", "hf"):
+            from huggingface_hub import snapshot_download
+
+            print("Downloading Qwen3-VL-Embedding-2B weights from HuggingFace...")
+            return snapshot_download(repo_id=self.model_name)
+        if endpoint in ("modelscope.ai", "ai"):
+            os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
+        from modelscope.hub.snapshot_download import snapshot_download
+
+        print(f"Downloading Qwen3-VL-Embedding-2B weights from ModelScope ({endpoint})...")
+        return snapshot_download(repo_id=self.model_name)
+
+    def _resolve_scripts_path(self, source: str | None = None) -> str:
         """Locate the directory that contains the official ``qwen3_vl_embedding.py``."""
-        if self.repo_path:
-            return self.repo_path
-        if self.ckpt_path:
-            bundled = os.path.join(self.ckpt_path, "scripts")
-            if os.path.exists(os.path.join(bundled, "qwen3_vl_embedding.py")):
-                return bundled
+        candidates = [self.repo_path, source, self.ckpt_path]
+        for candidate in candidates:
+            if candidate and os.path.isdir(candidate):
+                bundled = os.path.join(candidate, "scripts")
+                if os.path.exists(os.path.join(bundled, "qwen3_vl_embedding.py")):
+                    return bundled
         raise FileNotFoundError(
             "Cannot locate Qwen3VLEmbedder code. Set 'repo_path' in the config to the "
             "directory containing qwen3_vl_embedding.py."
@@ -119,7 +135,7 @@ class Qwen3VLEmbeddingModel:
     def load_model(self):
         """Load the Qwen3-VL-Embedding model via the official ``Qwen3VLEmbedder``."""
         source = self._resolve_source()
-        scripts_path = self._resolve_scripts_path()
+        scripts_path = self._resolve_scripts_path(source)
         embedder_cls = _load_embedder_class(scripts_path)
 
         kwargs = {}
@@ -149,6 +165,7 @@ class Qwen3VLEmbeddingModel:
         """
         try:
             from PIL import Image
+
             b = max(1, self.warmup_batch)
             dummy = [Image.new("RGB", (self.image_size, self.image_size), color=(128, 128, 128))] * b
             inputs = [{"image": im} for im in dummy]
@@ -170,9 +187,7 @@ class Qwen3VLEmbeddingModel:
 
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
             image_embeddings_np = np.stack(self.df_embed["embedding"].values)
-            self.image_embeddings = (
-                torch.from_numpy(image_embeddings_np).to(self.device).float()
-            )
+            self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"Qwen3VL Data loaded: {len(self.df_embed)} records")
         except Exception as e:
@@ -182,7 +197,7 @@ class Qwen3VLEmbeddingModel:
         """Convert raw Sentinel-2 reflectance to [0, 1] RGB (same as SigLIP/TIPSv2)."""
         return (2.5 * (input_data / 1e4)).clip(0, 1)
 
-    def _tensor_to_pil_list(self, image: torch.Tensor, preprocess_s2: bool = True) -> List[Image.Image]:
+    def _tensor_to_pil_list(self, image: torch.Tensor, preprocess_s2: bool = True) -> list[Image.Image]:
         """Prepare a torch.Tensor (CHW or NCHW) into a list of uint8 RGB PIL images."""
         tensor = image.float()
         if tensor.ndim == 3:
@@ -204,7 +219,7 @@ class Qwen3VLEmbeddingModel:
         arr = (tensor * 255).round().to(torch.uint8).cpu().numpy()  # N, C, H, W
         return [Image.fromarray(np.transpose(a, (1, 2, 0))).convert("RGB") for a in arr]
 
-    def _to_pil_rgb(self, image: Union[Image.Image, np.ndarray]) -> Image.Image:
+    def _to_pil_rgb(self, image: Image.Image | np.ndarray) -> Image.Image:
         if isinstance(image, Image.Image):
             return image.convert("RGB")
         if isinstance(image, np.ndarray):
@@ -214,7 +229,7 @@ class Qwen3VLEmbeddingModel:
             return Image.fromarray(arr).convert("RGB")
         raise TypeError(f"Unsupported image type: {type(image)}")
 
-    def _process(self, inputs: List[dict]) -> torch.Tensor:
+    def _process(self, inputs: list[dict]) -> torch.Tensor:
         """Run the embedder and return a float, L2-normalized tensor on self.device."""
         emb = self.model.process(inputs)  # [N, 2048], already L2-normalized
         if not isinstance(emb, torch.Tensor):
@@ -223,12 +238,10 @@ class Qwen3VLEmbeddingModel:
         if emb.ndim == 1:
             emb = emb.unsqueeze(0)
         if emb.shape[-1] != self.embedding_dim:
-            raise ValueError(
-                f"Qwen3VL embedding dim {emb.shape[-1]} != expected {self.embedding_dim}"
-            )
+            raise ValueError(f"Qwen3VL embedding dim {emb.shape[-1]} != expected {self.embedding_dim}")
         return F.normalize(emb, dim=-1)
 
-    def encode_text(self, text: str) -> Optional[torch.Tensor]:
+    def encode_text(self, text: str) -> torch.Tensor | None:
         """Encode a text query into a normalized [1, 2048] feature embedding."""
         if self.model is None or not text:
             return None
@@ -237,10 +250,10 @@ class Qwen3VLEmbeddingModel:
 
     def encode_image(
         self,
-        image: Union[Image.Image, np.ndarray, torch.Tensor, list, tuple],
+        image: Image.Image | np.ndarray | torch.Tensor | list | tuple,
         preprocess_s2: bool = True,
         normalize: bool = True,
-    ) -> Optional[torch.Tensor]:
+    ) -> torch.Tensor | None:
         """Encode image(s) into normalized [N, 2048] feature embeddings."""
         if self.model is None:
             return None
@@ -263,15 +276,15 @@ class Qwen3VLEmbeddingModel:
 
         with torch.inference_mode():
             emb = self._process(inputs)
-        # normalize flag kept for interface parity; _process already normalizes.
-        return emb if normalize else emb
+        # _process already L2-normalizes; `normalize` is kept for interface parity.
+        return emb
 
     def encode_text_and_image(
         self,
         text: str,
-        image: Union[Image.Image, np.ndarray, torch.Tensor],
+        image: Image.Image | np.ndarray | torch.Tensor,
         preprocess_s2: bool = True,
-    ) -> Optional[torch.Tensor]:
+    ) -> torch.Tensor | None:
         """Encode a text+image pair into a single joint [1, 2048] embedding.
 
         This uses Qwen3-VL-Embedding's native mixed-modal input capability:

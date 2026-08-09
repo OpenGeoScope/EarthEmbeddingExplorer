@@ -1,5 +1,4 @@
 import os
-from typing import Optional, Union
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -51,8 +50,9 @@ def _ensure_tipsv2_local_tokenizer():
     version into any already-loaded TIPSv2 modules before encode_text is called.
     """
     try:
-        import huggingface_hub
         import sys
+
+        import huggingface_hub
 
         downloader = huggingface_hub.hf_hub_download
         for name, mod in list(sys.modules.items()):
@@ -84,11 +84,11 @@ class TIPSv2Model:
 
     def __init__(
         self,
-        ckpt_path: Optional[str] = None,
+        ckpt_path: str | None = None,
         model_name: str = "google/tipsv2-b14",
-        embedding_path: Optional[str] = None,
-        device: Optional[str] = None,
-        revision: Optional[str] = None,
+        embedding_path: str | None = None,
+        device: str | None = None,
+        revision: str | None = None,
         image_size: int = 448,
         use_fp16: bool = True,
     ):
@@ -121,10 +121,26 @@ class TIPSv2Model:
             self.load_embeddings()
 
     def _resolve_source(self) -> str:
-        """Return local directory, HF repo_id, or model_name fallback."""
-        if self.ckpt_path:
+        """Return a local weights directory, downloading first if needed.
+
+        A valid local ``ckpt_path`` wins. Otherwise weights are fetched
+        according to the DOWNLOAD_ENDPOINT env var (same pattern as the other
+        model wrappers): Hugging Face returns the repo id for
+        ``from_pretrained``; ModelScope endpoints snapshot the repo and return
+        the local cache dir.
+        """
+        if self.ckpt_path and os.path.exists(self.ckpt_path):
             return self.ckpt_path
-        return self.model_name
+
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
+        if endpoint in ("huggingface", "hf"):
+            return self.model_name
+        if endpoint in ("modelscope.ai", "ai"):
+            os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
+        from modelscope.hub.snapshot_download import snapshot_download
+
+        print(f"Downloading TIPSv2 weights from ModelScope ({endpoint})...")
+        return snapshot_download(repo_id=self.model_name)
 
     def load_model(self):
         """Load the TIPSv2 model from a local directory or Hugging Face repo_id."""
@@ -158,9 +174,7 @@ class TIPSv2Model:
 
             self.df_embed = pq.read_table(self.embedding_path).to_pandas()
             image_embeddings_np = np.stack(self.df_embed["embedding"].values)
-            self.image_embeddings = (
-                torch.from_numpy(image_embeddings_np).to(self.device).float()
-            )
+            self.image_embeddings = torch.from_numpy(image_embeddings_np).to(self.device).float()
             self.image_embeddings = F.normalize(self.image_embeddings, dim=-1)
             print(f"TIPSv2 Data loaded: {len(self.df_embed)} records")
         except Exception as e:
@@ -226,7 +240,7 @@ class TIPSv2Model:
             )
         return tensor
 
-    def encode_text(self, text: str) -> Optional[torch.Tensor]:
+    def encode_text(self, text: str) -> torch.Tensor | None:
         """Encode a text query into a normalized feature embedding."""
         if self.model is None or not text:
             return None
@@ -242,10 +256,10 @@ class TIPSv2Model:
 
     def encode_image(
         self,
-        image: Union[Image.Image, np.ndarray, torch.Tensor],
+        image: Image.Image | np.ndarray | torch.Tensor,
         preprocess_s2: bool = True,
         normalize: bool = True,
-    ) -> Optional[torch.Tensor]:
+    ) -> torch.Tensor | None:
         """Encode an image into a normalized feature embedding."""
         if self.model is None:
             return None
