@@ -1,15 +1,9 @@
-import math
 import os
 from io import BytesIO
 
-import cartopy.crs as ccrs
-import cartopy.io.img_tiles as cimgt
 import fsspec
 import numpy as np
 import pyarrow.parquet as pq
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from matplotlib.figure import Figure
-from matplotlib.patches import Rectangle
 from PIL import Image, ImageDraw, ImageFont
 from rasterio.io import MemoryFile
 
@@ -43,13 +37,51 @@ def read_tif_bytes(tif_bytes):
             return f.read().squeeze()
 
 
+def _fsspec_options_for(url):
+    """Build fsspec open() options for a parquet URL.
+
+    Local parquet files (e.g. MajorTOM source images on disk) do not need
+    HTTP timeouts or read-ahead caching; fsspec handles local paths fine.
+    Remote HTTP reads from ModelScope/HuggingFace can be slow and hit the
+    default aiohttp timeout, so extend it and use a modest block cache.
+    """
+    if os.path.isfile(url):
+        return {}
+    try:
+        import aiohttp
+
+        timeout = aiohttp.ClientTimeout(total=300, connect=30)
+        return {
+            "cache_type": "readahead",
+            "block_size": 1 * 1024 * 1024,
+            "client_kwargs": {"timeout": timeout},
+        }
+    except Exception:
+        return {"cache_type": "readahead", "block_size": 1 * 1024 * 1024}
+
+
+def _parquet_has_column(row_dict, column):
+    """Check whether the parquet file referenced by row_dict contains a column.
+
+    Reads only the Arrow schema metadata (no data pages).
+    """
+    url = row_dict["parquet_url"]
+    try:
+        with fsspec.open(url, mode="rb", **_fsspec_options_for(url)) as f:
+            with pq.ParquetFile(f) as pf:
+                return column in pf.schema_arrow.names
+    except Exception as e:
+        print(f"⚠️ Could not inspect parquet schema for {url}: {e}")
+        return False
+
+
 def read_row_memory(row_dict, columns=None):
     if columns is None:
         columns = ["thumbnail"]
     url = row_dict["parquet_url"]
     row_idx = row_dict["parquet_row"]
 
-    fs_options = {"cache_type": "readahead", "block_size": 5 * 1024 * 1024}
+    fs_options = _fsspec_options_for(url)
 
     with fsspec.open(url, mode="rb", **fs_options) as f:
         with pq.ParquetFile(f) as pf:
@@ -89,6 +121,17 @@ def _prepare_row_dict(product_id, df_source, verbose=True):
             row_dict["parquet_url"] = url.replace("https://huggingface.co", "https://modelscope.cn").replace(
                 "resolve/main", "resolve/master"
             )
+
+        # Use a locally available MajorTOM source-image mirror if it exists.
+        # Set MAJOR_TOM_LOCAL_IMAGES to the directory containing images_249k/.
+        local_root = os.getenv("MAJOR_TOM_LOCAL_IMAGES")
+        if local_root:
+            parsed = url.split("/")
+            if "images_249k" in parsed:
+                filename = parsed[-1]
+                local_path = os.path.join(local_root, "images_249k", filename)
+                if os.path.exists(local_path):
+                    row_dict["parquet_url"] = local_path
     else:
         if verbose:
             print("❌ Error: 'parquet_url' missing in metadata.")
@@ -215,10 +258,7 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
         mode="rgb"       → (img_384, img_full)          — PIL Images from RGB bands.
         mode="multiband" → (img_384, img_full, bands)   — thumbnail preview + np.ndarray (H, W, 12) uint16.
     """
-    if os.path.exists("./configs/modelscope_ai.yaml"):
-        os.environ["MODEL_DOMAIN"] = "modelscope.cn"
-    else:
-        os.environ["MODEL_DOMAIN"] = "modelscope.cn"
+    os.environ.setdefault("MODEL_DOMAIN", "modelscope.cn")
     row_dict, _err = _prepare_row_dict(product_id, df_source, verbose)
     if row_dict is None:
         return (None, None) if mode != "multiband" else (None, None, None)
@@ -229,11 +269,15 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
     try:
         # ---- thumbnail mode ----
         if mode == "thumbnail":
+            if not _parquet_has_column(row_dict, "thumbnail"):
+                if verbose:
+                    print("⚠️ Parquet has no thumbnail column, falling back to rgb mode.")
+                return download_and_process_image(product_id, df_source, verbose, mode="rgb", normalize=normalize)
             data = read_row_memory(row_dict, columns=["thumbnail"])
             if "thumbnail" not in data or data["thumbnail"] is None:
                 if verbose:
                     print("⚠️ Thumbnail unavailable, falling back to rgb mode.")
-                return download_and_process_image(product_id, df_source, verbose, mode="rgb")
+                return download_and_process_image(product_id, df_source, verbose, mode="rgb", normalize=normalize)
             img_384, img_full = _thumbnail_to_pil(data["thumbnail"], verbose)
             if verbose:
                 print(f"✅ Successfully processed {product_id} (thumbnail)")
@@ -274,8 +318,12 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
                     break
             if ref_shape is None:
                 ref_shape = next(
-                    (data[b].shape[:2] for b in MULTIBAND_COLUMNS if b in data and data[b] is not None), (224, 224)
+                    (data[b].shape[:2] for b in MULTIBAND_COLUMNS if b in data and data[b] is not None), None
                 )
+            if ref_shape is None:
+                if verbose:
+                    print(f"❌ No usable band data for {product_id}; cannot build multiband array.")
+                return img_384, img_full, None
 
             band_arrays = []
             for band_name in MULTIBAND_COLUMNS:
@@ -313,13 +361,6 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
         return (None, None) if mode != "multiband" else (None, None, None)
 
 
-# Define Esri Imagery Class
-class EsriImagery(cimgt.GoogleTiles):
-    def _image_url(self, tile):
-        x, y, z = tile
-        return f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-
-
 def get_placeholder_image(text="Image Unavailable", size=(384, 384)):
     img = Image.new("RGB", size, color=(200, 200, 200))
     d = ImageDraw.Draw(img)
@@ -333,91 +374,3 @@ def get_placeholder_image(text="Image Unavailable", size=(384, 384)):
     # For better centering we would need font metrics, but simple is fine here
     d.text((20, size[1] // 2), text, fill=(0, 0, 0), font=font)
     return img
-
-
-def get_esri_satellite_image(lat, lon, score=None, rank=None, query=None):
-    """
-    Generates a satellite image visualization using Esri World Imagery via Cartopy.
-    Matches the style of the provided notebook.
-    Uses OO Matplotlib API for thread safety.
-    """
-    try:
-        imagery = EsriImagery()
-
-        # Create figure using OO API
-        fig = Figure(figsize=(5, 5), dpi=100)
-        _canvas = FigureCanvasAgg(fig)
-        ax = fig.add_subplot(1, 1, 1, projection=imagery.crs)
-
-        # Set extent to approx 10km x 10km around the point
-        extent_deg = 0.05
-        ax.set_extent([lon - extent_deg, lon + extent_deg, lat - extent_deg, lat + extent_deg], crs=ccrs.PlateCarree())
-
-        # Add the imagery
-        ax.add_image(imagery, 14)
-
-        # Add a marker for the center
-        ax.plot(lon, lat, marker="+", color="yellow", markersize=12, markeredgewidth=2, transform=ccrs.PlateCarree())
-
-        # Add Bounding Box (3840m x 3840m)
-        box_size_m = 384 * 10  # 3840m
-
-        # Convert meters to degrees (approx)
-        # 1 deg lat = 111320m
-        # 1 deg lon = 111320m * cos(lat)
-        dlat = box_size_m / 111320
-        dlon = box_size_m / (111320 * math.cos(math.radians(lat)))
-
-        # Bottom-Left corner
-        rect_lon = lon - dlon / 2
-        rect_lat = lat - dlat / 2
-
-        # Add Rectangle
-        rect = Rectangle(
-            (rect_lon, rect_lat),
-            dlon,
-            dlat,
-            linewidth=2,
-            edgecolor="red",
-            facecolor="none",
-            transform=ccrs.PlateCarree(),
-        )
-        ax.add_patch(rect)
-
-        # Title
-        title_parts = []
-        if query:
-            title_parts.append(f"{query}")
-        if rank is not None:
-            title_parts.append(f"Rank {rank}")
-        if score is not None:
-            title_parts.append(f"Score: {score:.4f}")
-
-        ax.set_title("\n".join(title_parts), fontsize=10)
-
-        # Save to buffer
-        buf = BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        buf.seek(0)
-
-        return Image.open(buf)
-
-    except Exception as e:
-        # Suppress full traceback for network errors to avoid log spam
-        error_msg = str(e)
-        if (
-            "Connection reset by peer" in error_msg
-            or "Network is unreachable" in error_msg
-            or "urlopen error" in error_msg
-        ):
-            print(
-                f"⚠️ Network warning: Could not fetch Esri satellite map for ({lat:.4f}, {lon:.4f}). Server might be offline."
-            )
-        else:
-            print(f"Error generating Esri image for {lat}, {lon}: {e}")
-            # Only print traceback for non-network errors
-            # import traceback
-            # traceback.print_exc()
-
-        # Return a placeholder image with text
-        return get_placeholder_image(f"Map Unavailable\n({lat:.2f}, {lon:.2f})")

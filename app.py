@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 import gradio as gr
 
@@ -26,6 +27,7 @@ from ui.callbacks import (
     handle_map_click,
     reset_to_global_map,
 )
+from visualize import warm_up_map_data
 
 # Environment variable for controlling download endpoint
 # Options: 'modelscope.cn', 'modelscope.ai', 'huggingface'
@@ -40,7 +42,7 @@ def _get_requested_models():
         "--models",
         type=str,
         default=None,
-        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,SatCLIP,FarSLIP,Clay,OlmoEarth.",
+        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,TIPSv2,SatCLIP,FarSLIP,Clay,OlmoEarth,Qwen3VL.",
     )
     args, _ = parser.parse_known_args()
     return args.models or os.getenv("EEX_MODELS")
@@ -63,23 +65,38 @@ model_manager = ModelManager(selected_models=_get_requested_models())
 models = model_manager.models  # Keep for backward compatibility with existing code
 print(f"Loaded models: {', '.join(model_manager.get_available_models()) or 'none'}")
 
-TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP"])
-IMAGE_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"])
-MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP"])
+# Warm up at startup: load NaturalEarth geometries and pre-render the global
+# map once, so the first page load / first search doesn't stall on them.
+print("Warming up map data (NaturalEarth geometries + initial global map)...")
+warm_up_map_data()
+get_initial_plot(models)
+print("Warm-up done.")
+
+TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL"])
+IMAGE_MODELS = _ordered_available_models(
+    ["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"]
+)
+MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
 
-INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款工具跨模态遥感图像检索工具，允许您使用自然语言描述、图像、地理位置或简单地在地图上点击来搜索地球的卫星图像。例如，您可以输入“热带雨林”或“有城市的海岸线”，系统就会找到地球上与您描述相符的位置。然后，它会在世界地图上可视化这些位置的卫星图像嵌入和您的输入嵌入的相似度，并显示最相似的图像。您可以下载检索结果和最相似的图像。"
+# UI display names: internal keys (config/EEX_MODELS/registry) stay unchanged;
+# only the labels shown in model dropdowns are overridden here.
+MODEL_DISPLAY_NAMES = {"Qwen3VL": "Qwen3-VL-Embedding-2B"}
+
+
+def _model_choices(model_names):
+    """Build (label, value) choice tuples so dropdowns show display names while
+    the component value passed to event handlers stays the internal model key."""
+    return [(MODEL_DISPLAY_NAMES.get(name, name), name) for name in model_names]
+
+
+INTRODUCTION_ZH = "EarthEmbeddingExplorer 是一款跨模态遥感图像检索工具。您可以用自然语言描述、上传图像、输入经纬度，或直接在地图上点击，来搜索全球的卫星影像。例如输入“热带雨林”或“有城市的海岸线”，系统会找到地球上与您描述相符的位置，在世界地图上可视化这些位置与查询的相似度，并展示最相似的图像。检索结果和图像均可下载。"
 INTRODUCTION_EN = 'EarthEmbeddingExplorer is a tool that allows you to search for satellite images of the Earth using natural language descriptions, images, geolocations, or a simple a click on the map. For example, you can type "tropical rainforest" or "coastline with a city," and the system will find locations on Earth that match your description. It then visualizes these locations on a world map and displays the top matching images.'
 
 if DOWNLOAD_ENDPOINT == "modelscope.cn":
     introduction = INTRODUCTION_ZH + "<br>" + INTRODUCTION_EN
 else:
     introduction = INTRODUCTION_EN
-
-
-def get_active_model(model_name):
-    """Wrapper for backward compatibility."""
-    return model_manager.get_model(model_name)
 
 
 # Wrapper functions for UI callbacks (pass models dict to extracted functions)
@@ -100,11 +117,69 @@ def _download_image_by_location(lat, lon, pid, model_name):
     return download_image_by_location(lat, lon, pid, model_name, models)
 
 
+# Text query samples for the Mixed Search tab. Module-level so the Gradio 6
+# hidden-tab re-render workaround below can reference the same list.
+MIXED_TEXT_EXAMPLE_QUERIES = [
+    ["a satellite image of a river around a city"],
+    ["a satellite image of a rainforest"],
+    ["a satellite image of a glacier"],
+    ["a satellite image of snow covered mountains"],
+]
+
+# Shared example files / coordinates, referenced both by gr.Examples and by the
+# hidden-tab re-render workaround below.
+IMAGE_EXAMPLE_FILES = [
+    ["./examples/example1.png"],
+    ["./examples/example2.png"],
+    ["./examples/example3.png"],
+]
+
+LOCATION_EXAMPLE_COORDS = [
+    [30.32, 120.15],
+    [40.7128, -74.0060],
+    [24.65, 46.71],
+    [-3.4653, -62.2159],
+    [64.4, 16.8],
+]
+
+
+def fix_hidden_tab_examples(tab, examples, raw_samples):
+    """Work around a Gradio 6.17.x frontend bug for gr.Examples in hidden tabs.
+
+    Text samples render as empty buttons and image samples fail order-dependently
+    when the tab is not initially visible (fixed upstream in gradio 6.21.0).
+    Clearing then restoring the samples on tab select forces a re-render.
+    `raw_samples` must be the original Python values (same as passed to
+    gr.Examples), NOT the postprocessed FileData dicts. Verified harmless
+    (redundant no-op) on gradio 5.49.x.
+
+    Args:
+        tab: the gr.TabItem containing the Examples component.
+        examples: the gr.Examples instance to repair (its .dataset is updated).
+        raw_samples: original sample list, e.g. [["./examples/example1.png"]].
+    """
+
+    def _fix():
+        yield gr.Dataset(samples=[])
+        time.sleep(0.4)
+        yield gr.Dataset(samples=raw_samples)
+
+    tab.select(fn=_fix, inputs=None, outputs=[examples.dataset])
+
+
 # Gradio Blocks Interface
 with gr.Blocks(
-    theme=gr.themes.Default(primary_hue=gr.themes.colors.purple),
+    theme=gr.themes.Default(
+        primary_hue=gr.themes.colors.purple,
+        # Gradio 6 bundles Source Sans Pro locally (5.x loaded it from Google Fonts,
+        # which is often unreachable and fell back to system-ui). Pin plain system
+        # fonts so the page looks the same on both versions.
+        font=["ui-sans-serif", "system-ui", "sans-serif"],
+    ),
     title="EarthEmbeddingExplorer",
     css="""
+/* Left-align text samples in gr.Examples (button default is centered) */
+.gallery-item { text-align: left !important; }
 .filter-checkbox {
     background: transparent !important;
     border: 1px solid #d1d5db !important;
@@ -159,7 +234,7 @@ div.form:has(.filter-checkbox) {
             with gr.Tabs():
                 with gr.TabItem("Text Search") as tab_text:
                     model_selector_text = gr.Dropdown(
-                        choices=TEXT_MODELS,
+                        choices=_model_choices(TEXT_MODELS),
                         value=_default_model(TEXT_MODELS, "FarSLIP"),
                         label="Model",
                     )
@@ -184,8 +259,8 @@ div.form:has(.filter-checkbox) {
 
                 with gr.TabItem("Image Search") as tab_image:
                     model_selector_img = gr.Dropdown(
-                        choices=IMAGE_MODELS,
-                        value=_default_model(IMAGE_MODELS, "Clay"),
+                        choices=_model_choices(IMAGE_MODELS),
+                        value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
 
@@ -198,12 +273,8 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("### Option 1: Upload or Select Image")
                     image_input = gr.Image(type="pil", label="Upload Image")
 
-                    gr.Examples(
-                        examples=[
-                            ["./examples/example1.png"],
-                            ["./examples/example2.png"],
-                            ["./examples/example3.png"],
-                        ],
+                    ex_img = gr.Examples(
+                        examples=IMAGE_EXAMPLE_FILES,
                         inputs=[image_input],
                         label="Image Examples",
                     )
@@ -237,14 +308,8 @@ div.form:has(.filter-checkbox) {
                     loc_pid = gr.Textbox(label="Product ID (auto-filled)", visible=False)
                     loc_click_status = gr.Markdown("")
 
-                    gr.Examples(
-                        examples=[
-                            [30.32, 120.15],
-                            [40.7128, -74.0060],
-                            [24.65, 46.71],
-                            [-3.4653, -62.2159],
-                            [64.4, 16.8],
-                        ],
+                    ex_loc = gr.Examples(
+                        examples=LOCATION_EXAMPLE_COORDS,
                         inputs=[lat_input, lon_input],
                         label="Location Examples",
                     )
@@ -254,14 +319,22 @@ div.form:has(.filter-checkbox) {
                 with gr.TabItem("Mixed Search") as tab_mixed:
                     gr.Markdown("""
                     ### Multi-Modal Fusion Search
-                    Combine **Text**, **Image**, and **Location** queries with adjustable weights.
-                    Text/Image use FarSLIP or SigLIP; Location uses SatCLIP. Scores are normalized and fused.
+                    Combine **Text**, **Image**, and (optionally) **Location** queries with adjustable weights.
+                    Text/Image use FarSLIP, SigLIP, TIPSv2, or Qwen3-VL-Embedding-2B; Location uses SatCLIP when available.
+                    For Qwen3-VL-Embedding-2B, when both Text and Image are provided (without Location),
+                    native joint encoding is used by default.
                     """)
 
                     model_selector_mixed = gr.Dropdown(
-                        choices=MIXED_TEXT_IMAGE_MODELS,
+                        choices=_model_choices(MIXED_TEXT_IMAGE_MODELS),
                         value=_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP"),
                         label="Model for Text/Image",
+                    )
+
+                    use_native_joint_checkbox = gr.Checkbox(
+                        label="Use native text+image joint encoding (Qwen3-VL-Embedding-2B only)",
+                        value=True,
+                        visible=(_default_model(MIXED_TEXT_IMAGE_MODELS, "FarSLIP") == "Qwen3VL"),
                     )
 
                     gr.Markdown("#### 📝 Text Query")
@@ -269,13 +342,8 @@ div.form:has(.filter-checkbox) {
                         label="Text Query (optional)", placeholder="e.g., tropical rainforest, glacier, urban area"
                     )
 
-                    gr.Examples(
-                        examples=[
-                            ["a satellite image of a river around a city"],
-                            ["a satellite image of a rainforest"],
-                            ["a satellite image of a glacier"],
-                            ["a satellite image of snow covered mountains"],
-                        ],
+                    mixed_text_examples = gr.Examples(
+                        examples=MIXED_TEXT_EXAMPLE_QUERIES,
                         inputs=[mixed_text_input],
                         label="Text Examples",
                     )
@@ -283,17 +351,18 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("#### 🖼️ Image Query")
                     mixed_image_input = gr.Image(type="pil", label="Upload Image (optional)")
 
-                    gr.Examples(
-                        examples=[
-                            ["./examples/example1.png"],
-                            ["./examples/example2.png"],
-                            ["./examples/example3.png"],
-                        ],
+                    ex_mixed_img = gr.Examples(
+                        examples=IMAGE_EXAMPLE_FILES,
                         inputs=[mixed_image_input],
                         label="Image Examples",
                     )
 
                     gr.Markdown("#### 📍 Location Query")
+                    mixed_enable_location = gr.Checkbox(
+                        label="Enable Location Query (uses SatCLIP)",
+                        value=False,
+                        interactive=HAS_SATCLIP,
+                    )
                     btn_reset_map_mixed = gr.Button("🔄 Reset Map to Global View", variant="secondary", size="sm")
                     with gr.Row():
                         mixed_lat = gr.Number(label="Latitude", interactive=True)
@@ -304,10 +373,14 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("#### ⚖️ Fusion Weights")
                     gr.Markdown("_Weights are auto-normalized. Set weight to 0 to disable a modality._")
                     with gr.Row():
-                        weight_text = gr.Slider(minimum=0, maximum=1, value=0.33, step=0.01, label="Text Weight")
-                        weight_image = gr.Slider(minimum=0, maximum=1, value=0.33, step=0.01, label="Image Weight")
+                        weight_text = gr.Slider(minimum=0, maximum=1, value=0.5, step=0.01, label="Text Weight")
+                        weight_image = gr.Slider(minimum=0, maximum=1, value=0.5, step=0.01, label="Image Weight")
                         weight_location = gr.Slider(
-                            minimum=0, maximum=1, value=0.33, step=0.01, label="Location Weight"
+                            minimum=0,
+                            maximum=1,
+                            value=0.33 if HAS_SATCLIP else 0.0,
+                            step=0.01,
+                            label="Location Weight",
                         )
 
                     search_mixed_btn = gr.Button(
@@ -347,7 +420,6 @@ div.form:has(.filter-checkbox) {
             plot_map = gr.Image(
                 label="Geographical Distribution", type="pil", interactive=False, height=400, width=800, visible=True
             )
-            plot_map_interactive = gr.Plot(label="Geographical Distribution (Interactive)", visible=False)
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
@@ -360,8 +432,9 @@ div.form:has(.filter-checkbox) {
     # NOT when the image was programmatically set by the download button.
     def _clear_multiband_on_upload(img, source):
         if source == "download":
-            # Image was set by the download button — keep multiband, reset source flag
-            return gr.update(), "download"
+            # Image was set by the download button — keep multiband, then reset
+            # the source flag so a later manual upload is not misclassified.
+            return gr.update(), "upload"
         # User manually uploaded/changed image — discard stale multiband data
         return None, "upload"
 
@@ -370,7 +443,7 @@ div.form:has(.filter-checkbox) {
     )
 
     # Initial Load
-    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state, plot_map_interactive])
+    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
 
     # Reset Map Buttons
     btn_reset_map_img.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
@@ -484,11 +557,16 @@ div.form:has(.filter-checkbox) {
         f_lat_max,
         f_lon_min,
         f_lon_max,
-        multiband_data=None,
+        use_native_joint,
+        enable_location,
     ):
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
+        if not enable_location:
+            # Coordinates may be leftover from a map click; without the explicit
+            # opt-in they must not silently join the fusion (location weight > 0).
+            lat, lon = None, None
         yield from _search_mixed(
             model_manager,
             query_text,
@@ -501,8 +579,18 @@ div.form:has(.filter-checkbox) {
             threshold,
             model_name,
             fo,
-            multiband_data,
+            use_native_joint,
         )
+
+    # Toggle native-joint checkbox visibility based on selected mixed-search model.
+    def _toggle_native_joint(model_name):
+        return gr.update(visible=(model_name == "Qwen3VL"))
+
+    model_selector_mixed.change(
+        fn=_toggle_native_joint,
+        inputs=[model_selector_mixed],
+        outputs=[use_native_joint_checkbox],
+    )
 
     # Search Event (Text)
     search_btn.click(
@@ -514,7 +602,6 @@ div.form:has(.filter-checkbox) {
             *_filter_inputs,
         ],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -529,7 +616,6 @@ div.form:has(.filter-checkbox) {
         fn=_wrap_search_image,
         inputs=[image_input, threshold_slider, model_selector_img, *_filter_inputs, multiband_state],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -544,7 +630,6 @@ div.form:has(.filter-checkbox) {
         fn=_wrap_search_location,
         inputs=[lat_input, lon_input, threshold_slider, *_filter_inputs],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -568,10 +653,10 @@ div.form:has(.filter-checkbox) {
             threshold_slider,
             model_selector_mixed,
             *_filter_inputs,
-            multiband_state,
+            use_native_joint_checkbox,
+            mixed_enable_location,
         ],
         outputs=[
-            plot_map_interactive,
             gallery_images,
             status_output,
             results_plot,
@@ -588,14 +673,22 @@ div.form:has(.filter-checkbox) {
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
 
-    # Tab Selection Events
+    # Tab Selection Events — re-show the map when switching tabs (a failed or
+    # empty search may have hidden it).
     def show_static_map():
-        return gr.update(visible=True), gr.update(visible=False)
+        return gr.update(visible=True)
 
-    tab_text.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_image.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_location.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
-    tab_mixed.select(fn=show_static_map, outputs=[plot_map, plot_map_interactive])
+    tab_text.select(fn=show_static_map, outputs=[plot_map])
+    tab_image.select(fn=show_static_map, outputs=[plot_map])
+    tab_location.select(fn=show_static_map, outputs=[plot_map])
+    tab_mixed.select(fn=show_static_map, outputs=[plot_map])
+
+    # Gradio 6.17.x hidden-tab Examples rendering bug: force re-render on tab
+    # select for every Examples component not in the initially-visible tab.
+    fix_hidden_tab_examples(tab_image, ex_img, IMAGE_EXAMPLE_FILES)
+    fix_hidden_tab_examples(tab_location, ex_loc, LOCATION_EXAMPLE_COORDS)
+    fix_hidden_tab_examples(tab_mixed, mixed_text_examples, MIXED_TEXT_EXAMPLE_QUERIES)
+    fix_hidden_tab_examples(tab_mixed, ex_mixed_img, IMAGE_EXAMPLE_FILES)
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7859, share=False)

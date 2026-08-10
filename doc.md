@@ -41,7 +41,7 @@ The original tiles in Core-S2L2A are large (1068×1068 pixels), but most AI mode
 </div>
 
 ### Retrieval models
-The core of image retrieval includes **CLIP (Contrastive Language-Image Pre-training)** [2] and **DINOv2 (self-supervised vision transformers)** [7]. We use CLIP's improved variants such as **SigLIP (Sigmoid Language-Image Pre-training)** [3], **FarSLIP (Fine-grained Aligned Remote Sensing Language Image Pretraining)** [4], and **SatCLIP (Satellite Location-Image Pretraining)** [5], along with **DINOv2** [7] and **OlmoEarth** [8] for pure visual similarity search.
+The core of image retrieval includes **CLIP (Contrastive Language-Image Pre-training)** [2] and **DINOv2 (self-supervised vision transformers)** [7]. We use CLIP's improved variants such as **SigLIP (Sigmoid Language-Image Pre-training)** [3], **FarSLIP (Fine-grained Aligned Remote Sensing Language Image Pretraining)** [4], and **SatCLIP (Satellite Location-Image Pretraining)** [5], along with **DINOv2** [7] and **OlmoEarth** [8] for pure visual similarity search. We also use **TIPSv2** [10], a vision-language model with spatially-aware patch-text alignment, and **Qwen3-VL-Embedding** [11], a 2B multimodal embedding model built on Qwen3-VL that natively encodes text+image pairs jointly for mixed search.
 
 
 An analogy: when teaching a child, you show a picture of a glacier and say “glacier”. After seeing many examples, the child learns to associate the visual concept with the word.
@@ -62,7 +62,7 @@ DINOv2, on the other hand, is a self-supervised vision model that learns rich vi
 
 **OlmoEarth** is an Earth-system foundation model trained on Sentinel-2 and derived geospatial maps. It uses a flexible multi-modal architecture and excels at capturing spectral and spatial patterns from 12-band multispectral imagery.
 
-The six models we use differ in their encoders and training data:
+The eight models we use differ in their encoders and training data:
 
 | Model | Encoder type | Training data |
 | :--- | :--- | :--- |
@@ -71,6 +71,8 @@ The six models we use differ in their encoders and training data:
 | FarSLIP | image encoder + text encoder | satellite image–text pairs |
 | SatCLIP | image encoder + location encoder | satellite image–location pairs |
 | OlmoEarth | image encoder only | Sentinel-2 + derived maps (self-supervised) |
+| TIPSv2 | image encoder + text encoder | web image–text pairs (spatially-aware pretraining) |
+| Qwen3-VL-Embedding | image encoder + text encoder (VLM) | instruction-aware multimodal pairs |
 
 <div align="center">
   <img src="images/embedding.png" width="30%" />
@@ -79,7 +81,7 @@ The six models we use differ in their encoders and training data:
 </div>
 
 In EarthEmbeddingExplorer:
-1. We precompute embeddings for ~250k globally distributed satellite images using SigLIP, DINOv2, FarSLIP, SatCLIP, and OlmoEarth.
+1. We precompute embeddings for ~250k globally distributed satellite images using SigLIP, DINOv2, FarSLIP, SatCLIP, OlmoEarth, TIPSv2, and Qwen3-VL-Embedding.
 2. When you provide a query (text like "a satellite image of glacier", an image, or a location such as (-89, 120)), we encode the query into an embedding using the corresponding encoder.
 3. We compare the query embedding with all image embeddings, visualize similarities on a map, and show the top-5 most similar images.
 
@@ -146,6 +148,8 @@ We thank the following open-source projects and datasets that made EarthEmbeddin
 - [FarSLIP](https://github.com/NJU-LHRS/FarSLIP) - Fine-grained satellite image-text pretraining model
 - [SatCLIP](https://github.com/microsoft/satclip) - Satellite location-image pretraining model
 - [DINOv2](https://huggingface.co/facebook/dinov2-large) - Self-supervised vision transformer
+- [TIPSv2](https://github.com/google-deepmind/tips) - Vision-language models with spatially aware patch-text alignment
+- [Qwen3-VL-Embedding](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) - Multimodal embedding model built on Qwen3-VL
 
 **Datasets:**
 - [MajorTOM](https://github.com/ESA-PhiLab/MajorTOM) - Expandable datasets for Earth observation by ESA
@@ -198,3 +202,7 @@ url={https://openreview.net/forum?id=LSsEenJVqD}
 [8] Herzog, H., et al. (2025). OlmoEarth: Stable Latent Image Modeling for Multimodal Earth Observation. arXiv preprint arXiv:2511.13655.
 
 [9] Zheng, et al. (2026). EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images. 4th ICLR Workshop on ML4RS (Tutorial Track)
+
+[10] Cao, B., et al. (2026). TIPSv2: Advancing Vision-Language Pretraining with Enhanced Patch-Text Alignment. arXiv preprint arXiv:2604.12012.
+
+[11] Li, M., et al. (2026). Qwen3-VL-Embedding and Qwen3-VL-Reranker: A Unified Framework for State-of-the-Art Multimodal Retrieval and Ranking. arXiv preprint arXiv:2601.04720.

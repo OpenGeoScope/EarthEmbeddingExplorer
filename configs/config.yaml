@@ -22,3 +22,18 @@ olmoearth:
   ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_size: "base"  # nano | tiny | base | large
   embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-Base/OlmoEarth_Base_crop_384x384.parquet"
+
+tipsv2:
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
+  model_name: "google/tipsv2-b14"
+  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-TIPSv2/TIPSv2_b14_crop_448x448.parquet"
+  image_size: 448
+
+qwen3vl:
+  ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
+  model_name: "Qwen/Qwen3-VL-Embedding-2B"
+  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding/Qwen3VL_2B_crop_384x384.parquet"
+  image_size: 384
+  warmup_runs: 1
+  warmup_batch: 8        # online inference: small batch is enough; set to 96 only for batch embedding generation
+  # repo_path 可选：默认从 <ckpt_path>/scripts/qwen3_vl_embedding.py 加载官方 Qwen3VLEmbedder

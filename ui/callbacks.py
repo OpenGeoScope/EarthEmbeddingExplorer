@@ -1,83 +1,123 @@
+from functools import lru_cache
+
+import cartopy.crs as ccrs
 import gradio as gr
 import pandas as pd
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 from data_utils import download_and_process_image
 from visualize import plot_global_map_static
+
+# The global map is identical for every session, so render it once and reuse
+# it. Re-rendering the dpi=350 scatter map on every page load used to make
+# the initial load slow (and pile up under concurrent sessions).
+_GLOBAL_MAP_CACHE = {}
+
+
+def _get_global_map(models):
+    """Return cached (img, df_vis) for the global sample map."""
+    first_model_name = next(iter(models), None)
+    if first_model_name is None or models[first_model_name].df_embed is None:
+        return None, None
+
+    if first_model_name not in _GLOBAL_MAP_CACHE:
+        _GLOBAL_MAP_CACHE[first_model_name] = plot_global_map_static(models[first_model_name].df_embed)
+    return _GLOBAL_MAP_CACHE[first_model_name]
+
+
+# Fallback pixel bbox (x0, y_top, x1, y_bottom) for the map area within the
+# 3500x1750 rendered PNG, matching the legacy hardcoded margins. Used only if
+# the layout calibration in _map_axes_pixel_bbox fails.
+_LEGACY_MAP_BBOX = (146.125, 87.5, 3353.875, 1691.375)
+
+
+@lru_cache(maxsize=2)
+def _map_axes_pixel_bbox(with_colorbar):
+    """Compute the pixel bounding box of the map axes in the rendered PNG.
+
+    Replicates the exact figure layout of visualize.plot_global_map_static
+    (no colorbar) and visualize.plot_geographic_distribution (with colorbar):
+    figsize 10x5 @ dpi 350 -> 3500x1750 px, PlateCarree extent [-180,180]x
+    [-90,90], legend and optional colorbar. NaturalEarth features do not
+    affect the layout and are omitted, so this works offline. The result is
+    cached; on any failure the legacy hardcoded bbox is returned.
+
+    Args:
+        with_colorbar: True for search-result maps, False for the initial
+            global map.
+
+    Returns:
+        tuple: (x0, y_top, x1, y_bottom) axes bounds in image pixels.
+    """
+    try:
+        fig = Figure(figsize=(10, 5), dpi=350)
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+        sc = ax.scatter(
+            [0.0], [0.0], c=[0.5], cmap="Reds", s=0.35, alpha=0.8, transform=ccrs.PlateCarree(), label="Samples"
+        )
+        ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
+        ax.axis("off")
+        if with_colorbar:
+            cbar = fig.colorbar(sc, ax=ax, fraction=0.025, pad=0.02)
+            cbar.set_label("Similarity Score")
+        ax.legend(
+            loc="lower left", markerscale=3 if with_colorbar else 5, frameon=True, facecolor="white", framealpha=0.9
+        )
+        fig.tight_layout()
+        # The draw applies cartopy's aspect adjustment to the axes position.
+        fig.canvas.draw()
+        pos = ax.get_position()
+        width_px, height_px = fig.get_size_inches() * fig.dpi
+        return (pos.x0 * width_px, (1 - pos.y1) * height_px, pos.x1 * width_px, (1 - pos.y0) * height_px)
+    except Exception as e:
+        print(f"⚠️ Map layout calibration failed ({e}); falling back to hardcoded map bbox.")
+        return _LEGACY_MAP_BBOX
 
 
 def get_initial_plot(models):
     """Find the first available embedding to plot the global map."""
     if models is None:
         print("Warning: models is None in get_initial_plot")
-        return gr.update(visible=True), [], None, gr.update(visible=False)
+        return gr.update(visible=True), [], None
 
-    df_vis = None
-    img = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
-    else:
+    img, df_vis = _get_global_map(models)
+    if img is None:
         print("No embedding data available for initial plot.")
-        img, df_vis = None, None
 
-    return gr.update(value=img, visible=True), [img] if img else [], df_vis, gr.update(visible=False)
+    return gr.update(value=img, visible=True), [img] if img else [], df_vis
 
 
 def handle_map_click(evt: gr.SelectData, df_vis):
-    if evt is None:
-        return None, None, None, "No point selected."
+    """Convert a map click (image pixel coordinates) to lat/lon and snap to the nearest sample.
+
+    The pixel-to-geo mapping uses the real axes bounding box of the currently
+    displayed map, calibrated from the same figure layout as visualize.py:
+    search-result maps carry a "score" column in df_vis and are rendered with
+    a colorbar, which shifts the axes relative to the initial global map.
+
+    No-op / error paths return gr.update() for the coordinate outputs so
+    existing user inputs are preserved (returning None would clear them).
+    """
+    if evt is None or evt.index is None:
+        return gr.update(), gr.update(), gr.update(), "No point selected. Please click on the map."
 
     try:
         x, y = evt.index[0], evt.index[1]
 
-        # Image dimensions
-        img_width = 3500
-        img_height = 1750
-
-        # Scaled Margins (Proportional to 4000x2000)
-        left_margin = 110 * 0.875
-        right_margin = 110 * 0.875
-        top_margin = 100 * 0.875
-        bottom_margin = 67 * 0.875
-
-        plot_width = img_width - left_margin - right_margin
-        plot_height = img_height - top_margin - bottom_margin
-
-        # Adjust for aspect ratio preservation
-        map_aspect = 360.0 / 180.0  # 2.0
-        plot_aspect = plot_width / plot_height
-
-        if plot_aspect > map_aspect:
-            actual_map_width = plot_height * map_aspect
-            actual_map_height = plot_height
-            h_offset = (plot_width - actual_map_width) / 2
-            v_offset = 0
-        else:
-            actual_map_width = plot_width
-            actual_map_height = plot_width / map_aspect
-            h_offset = 0
-            v_offset = (plot_height - actual_map_height) / 2
-
-        # Calculate relative position within the plot area
-        x_in_plot = x - left_margin
-        y_in_plot = y - top_margin
+        # plot_geographic_distribution adds a "score" column to its result df,
+        # so its presence tells us the displayed map was rendered with a colorbar.
+        with_colorbar = df_vis is not None and "score" in df_vis.columns
+        x0, y_top, x1, y_bottom = _map_axes_pixel_bbox(with_colorbar)
 
         # Check if click is within the actual map bounds
-        if (
-            x_in_plot < h_offset
-            or x_in_plot > h_offset + actual_map_width
-            or y_in_plot < v_offset
-            or y_in_plot > v_offset + actual_map_height
-        ):
-            return None, None, None, "Click outside map area. Please click on the map."
+        if x < x0 or x > x1 or y < y_top or y > y_bottom:
+            return gr.update(), gr.update(), gr.update(), "Click outside map area. Please click on the map."
 
-        # Calculate relative position within the map (0 to 1)
-        x_rel = (x_in_plot - h_offset) / actual_map_width
-        y_rel = (y_in_plot - v_offset) / actual_map_height
-
-        # Clamp to [0, 1]
-        x_rel = max(0, min(1, x_rel))
-        y_rel = max(0, min(1, y_rel))
+        # Calculate relative position within the map (0 to 1) and clamp
+        x_rel = max(0.0, min(1.0, (x - x0) / (x1 - x0)))
+        y_rel = max(0.0, min(1.0, (y - y_top) / (y_bottom - y_top)))
 
         # Convert to geographic coordinates
         lon = x_rel * 360 - 180
@@ -85,7 +125,7 @@ def handle_map_click(evt: gr.SelectData, df_vis):
 
         # Find nearest point in df_vis if available
         pid = ""
-        if df_vis is not None:
+        if df_vis is not None and not df_vis.empty:
             dists = (df_vis["centre_lat"] - lat) ** 2 + (df_vis["centre_lon"] - lon) ** 2
             min_idx = dists.idxmin()
             nearest_row = df_vis.loc[min_idx]
@@ -100,7 +140,7 @@ def handle_map_click(evt: gr.SelectData, df_vis):
         import traceback
 
         traceback.print_exc()
-        return None, None, None, f"Error: {e}"
+        return gr.update(), gr.update(), gr.update(), f"Error: {e}"
 
     return lat, lon, pid, f"Selected Point: ({lat:.4f}, {lon:.4f})"
 
@@ -127,14 +167,37 @@ def download_image_by_location(lat, lon, pid, model_name, models):
         lat = float(lat)
         lon = float(lon)
 
+        df = model.df_embed
+        if df is None:
+            return None, f"Model {model_name} embeddings not loaded (metadata missing).", None
+
         # Find Product ID if not provided
         if not pid:
-            df = model.df_embed
             lats = pd.to_numeric(df["centre_lat"], errors="coerce")
             lons = pd.to_numeric(df["centre_lon"], errors="coerce")
             dists = (lats - lat) ** 2 + (lons - lon) ** 2
             nearest_idx = dists.idxmin()
+            # Guard against silently downloading a far-away image when the
+            # coordinates were not snapped to a sample on the map (same 5°
+            # threshold as the map-click snap).
+            if dists[nearest_idx] >= 25:
+                dist_deg = float(dists[nearest_idx]) ** 0.5
+                return (
+                    None,
+                    f"Nearest sample is {dist_deg:.1f}° away from ({lat:.4f}, {lon:.4f}) — too far to download. "
+                    "Please click on the map to select a sample or refine the coordinates.",
+                    None,
+                )
             pid = df.loc[nearest_idx, "product_id"]
+        elif pid not in df["product_id"].values:
+            # The pid was snapped from another model's map subset and does not
+            # exist in this model's embedding table.
+            return (
+                None,
+                f"Product ID '{pid}' not found in {model_name} embeddings. "
+                "Please click the map again to re-select a sample for this model.",
+                None,
+            )
 
         # For multi-spectral models: download multiband for encoding; thumbnail for display
         needs_multiband = getattr(model, "requires_multiband", False)
@@ -163,13 +226,8 @@ def reset_to_global_map(models):
         print("Warning: models is None in reset_to_global_map")
         return gr.update(visible=True), [], None
 
-    img = None
-    df_vis = None
-    first_model_name = next(iter(models), None)
-    if first_model_name is not None and models[first_model_name].df_embed is not None:
-        img, df_vis = plot_global_map_static(models[first_model_name].df_embed)
-    else:
+    img, df_vis = _get_global_map(models)
+    if img is None:
         print("No embedding data available for initial plot.")
-        img, df_vis = None, None
 
     return gr.update(value=img, visible=True), [img] if img else [], df_vis

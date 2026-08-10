@@ -9,14 +9,25 @@ from models.dinov2_model import DINOv2Model
 from models.farslip_model import FarSLIPModel
 from models.load_config import load_and_process_config
 from models.olmoearth_model import OlmoEarthModel
+from models.qwen3vl_embedding_model import Qwen3VLEmbeddingModel
 from models.satclip_model import SatCLIPModel
 from models.siglip_model import SigLIPModel
+from models.tipsv2_model import TIPSv2Model
 
 
 class ModelManager:
     """Manages model loading and retrieval."""
 
-    MODEL_LOAD_ORDER: ClassVar[tuple[str, ...]] = ("DINOv2", "SigLIP", "SatCLIP", "FarSLIP", "Clay", "OlmoEarth")
+    MODEL_LOAD_ORDER: ClassVar[tuple[str, ...]] = (
+        "DINOv2",
+        "SigLIP",
+        "TIPSv2",
+        "SatCLIP",
+        "FarSLIP",
+        "Clay",
+        "OlmoEarth",
+        "Qwen3VL",
+    )
     _MODEL_ALIASES: ClassVar[dict[str, str]] = {model_name.lower(): model_name for model_name in MODEL_LOAD_ORDER}
 
     def __init__(self, device=None, selected_models=None):
@@ -81,10 +92,12 @@ class ModelManager:
         loaders = {
             "DINOv2": self._load_dinov2,
             "SigLIP": self._load_siglip,
+            "TIPSv2": self._load_tipsv2,
             "SatCLIP": self._load_satclip,
             "FarSLIP": self._load_farslip,
             "Clay": self._load_clay,
             "OlmoEarth": self._load_olmoearth,
+            "Qwen3VL": self._load_qwen3vl,
         }
         for model_name in self.selected_models:
             loaders[model_name]()
@@ -117,6 +130,42 @@ class ModelManager:
                 self.models["SigLIP"] = SigLIPModel(device=self.device)
         except Exception as e:
             print(f"Failed to load SigLIP: {e}")
+
+    def _load_tipsv2(self):
+        """Load TIPSv2 model."""
+        try:
+            if self.config and "tipsv2" in self.config:
+                self.models["TIPSv2"] = TIPSv2Model(
+                    ckpt_path=self.config["tipsv2"].get("ckpt_path"),
+                    model_name=self.config["tipsv2"].get("model_name", "google/tipsv2-b14"),
+                    embedding_path=self.config["tipsv2"].get("embedding_path"),
+                    revision=self.config["tipsv2"].get("revision"),
+                    image_size=self.config["tipsv2"].get("image_size", 448),
+                    device=self.device,
+                )
+            else:
+                self.models["TIPSv2"] = TIPSv2Model(device=self.device)
+        except Exception as e:
+            print(f"Failed to load TIPSv2: {e}")
+
+    def _load_qwen3vl(self):
+        """Load Qwen3-VL-Embedding-2B model."""
+        try:
+            if self.config and "qwen3vl" in self.config:
+                self.models["Qwen3VL"] = Qwen3VLEmbeddingModel(
+                    ckpt_path=self.config["qwen3vl"].get("ckpt_path"),
+                    model_name=self.config["qwen3vl"].get("model_name", "Qwen/Qwen3-VL-Embedding-2B"),
+                    embedding_path=self.config["qwen3vl"].get("embedding_path"),
+                    image_size=self.config["qwen3vl"].get("image_size", 384),
+                    repo_path=self.config["qwen3vl"].get("repo_path"),
+                    device=self.device,
+                    warmup_runs=self.config["qwen3vl"].get("warmup_runs", 1),
+                    warmup_batch=self.config["qwen3vl"].get("warmup_batch", 8),
+                )
+            else:
+                self.models["Qwen3VL"] = Qwen3VLEmbeddingModel(device=self.device)
+        except Exception as e:
+            print(f"Failed to load Qwen3VL: {e}")
 
     def _load_satclip(self):
         """Load SatCLIP model."""

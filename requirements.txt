@@ -1,7 +1,6 @@
 huggingface-hub==0.34.1
 transformers
 open_clip_torch
-gradio
 torch
 numpy
 pandas
@@ -12,7 +11,7 @@ rasterio
 albumentations
 plotly
 plotly-geo
-pillow
+pillow>=11.0
 lightning
 torchgeo
 modelscope
@@ -24,3 +23,6 @@ scikit-image
 scikit-learn
 vit-pytorch
 olmoearth-pretrain-minimal
+torchvision
+sentencepiece
+qwen-vl-utils

@@ -14,6 +14,8 @@ add_*.py
 *.pyc__pycache__/
 tmp/
 config_local.yaml
+configs/config_local.yaml
+LOCAL_CHANGES.md
 auto_upload.sh
 *.sh
 comparison_imagery.md
@@ -21,13 +23,15 @@ test_*.py
 !tests/test_*.py
 kimi*
 restore_and_fix.py
+app.pid
 
 # Planning files (planning-with-files skill)
 task_plan.md
 progress.md
 findings.md
 
-# Generated embeddings and artifacts
+# Cache and generated artifacts
+cache/
 embeddings_*/
 *.pkl
 *.npy
