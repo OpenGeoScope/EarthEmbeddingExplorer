@@ -148,11 +148,27 @@ class Qwen3VLEmbeddingModel:
 
         try:
             self.model = embedder_cls(model_name_or_path=source, **kwargs)
+            self._enforce_device()
             self._warmup_cudnn()
             print(f"Qwen3VL model loaded from {source} on {self.device}")
         except Exception as e:
             print(f"Error loading Qwen3VL model from {source}: {e}")
             raise
+
+    def _enforce_device(self):
+        """Move the embedder's inner torch model onto ``self.device``.
+
+        The official ``Qwen3VLEmbedder`` hard-codes ``cuda`` whenever a GPU is
+        visible (its ``__init__`` does ``.to(torch.device("cuda" if available
+        else "cpu"))``), ignoring the caller's device choice — e.g.
+        ``--device cpu`` on a GPU machine or ``cuda:1`` on a multi-GPU machine.
+        All of its input preparation routes through ``self.model.device``, so
+        migrating the inner model after construction is sufficient. ``.to()``
+        is a no-op when the model is already on the requested device.
+        """
+        inner = getattr(self.model, "model", None)
+        if inner is not None:
+            inner.to(torch.device(self.device))
 
     def _warmup_cudnn(self):
         """Warm up cuDNN with a fixed-resolution dummy batch.

@@ -9,9 +9,10 @@ These tests load no models, need no GPU, and run in seconds. They cover:
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from core.filters import apply_filters, build_filter_options
-from core.search_engine import _align_on_grid_cell, _normalize_scores
+from core.search_engine import _align_on_grid_cell, _device_matmul_scores, _normalize_scores
 
 
 class TestNormalizeScores:
@@ -141,3 +142,59 @@ class TestApplyFilters:
         assert warnings == []
         assert len(new_f) == len(new_t) == 4
         assert df_geo is df
+
+
+class TestDeviceMatmulScores:
+    """On-device similarity computation must match the numpy reference exactly."""
+
+    def test_matches_numpy_reference(self):
+        rng = np.random.default_rng(0)
+        emb = rng.normal(size=(50, 8)).astype(np.float32)
+        feat = rng.normal(size=(1, 8)).astype(np.float32)
+        expected = (emb @ feat.T).ravel()
+        result = _device_matmul_scores(torch.from_numpy(emb), torch.from_numpy(feat))
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    def test_accepts_numpy_inputs_and_1d_feature(self):
+        emb = np.eye(4, dtype=np.float32)
+        feat = np.ones(4, dtype=np.float32)  # (D,) instead of (1, D)
+        result = _device_matmul_scores(emb, feat)
+        np.testing.assert_allclose(result, np.ones(4), rtol=1e-6)
+
+    def test_indices_align_rows(self):
+        emb = torch.from_numpy(np.eye(5, dtype=np.float32))
+        feat = torch.ones(1, 5)
+        result = _device_matmul_scores(emb, feat, indices=np.array([4, 2]))
+        # Rows 4 and 2 of the identity matrix, each dot all-ones = 1
+        np.testing.assert_allclose(result, np.ones(2), rtol=1e-6)
+
+
+class TestQwenEnforceDevice:
+    """``Qwen3VLEmbeddingModel._enforce_device`` migrates the official embedder's
+    inner model onto the caller-requested device (the official class hard-codes
+    cuda-when-available). Tested here with a dummy inner model, no weights needed."""
+
+    def _make_wrapper(self, device):
+        from models.qwen3vl_embedding_model import Qwen3VLEmbeddingModel
+
+        wrapper = object.__new__(Qwen3VLEmbeddingModel)  # bypass __init__ (no model load)
+        wrapper.device = device
+        return wrapper
+
+    def test_cpu_to_cpu_is_noop(self):
+        from types import SimpleNamespace
+
+        wrapper = self._make_wrapper("cpu")
+        wrapper.model = SimpleNamespace(model=torch.nn.Linear(4, 4))
+        wrapper._enforce_device()
+        assert next(wrapper.model.model.parameters()).device.type == "cpu"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+    def test_moves_inner_model_to_requested_cuda_device(self):
+        from types import SimpleNamespace
+
+        wrapper = self._make_wrapper("cuda:0")
+        wrapper.model = SimpleNamespace(model=torch.nn.Linear(4, 4))  # starts on CPU
+        wrapper._enforce_device()
+        assert next(wrapper.model.model.parameters()).device == torch.device("cuda:0")
+        wrapper.model.model.to("cpu")  # free GPU memory

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import gradio as gr
 import numpy as np
 import pandas as pd
+import torch
 from PIL import Image as PILImage
 
 from data_utils import download_and_process_image, get_placeholder_image, reorder_multiband
@@ -584,6 +585,31 @@ def search_location(model_manager, lat, lon, threshold, filter_options=None):
         yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
+def _device_matmul_scores(image_embeddings, features, indices=None):
+    """Compute ``embeddings @ features`` similarity scores on the embeddings' device.
+
+    Keeping the (N, D) embedding matrix on its own device avoids copying the
+    full matrix to host memory for every query (e.g. ~2 GiB per query for the
+    248,719 x 2048 float32 Qwen3VL set); only the (N,) score vector crosses
+    back to CPU.
+
+    Args:
+        image_embeddings: (N, D) L2-normalized embeddings, torch.Tensor or array-like.
+        features: (1, D) or (D,) query feature, torch.Tensor or array-like.
+        indices: optional integer row positions for cross-model grid-cell alignment.
+
+    Returns:
+        np.ndarray: (N,) similarity scores.
+    """
+    emb = image_embeddings if torch.is_tensor(image_embeddings) else torch.from_numpy(np.asarray(image_embeddings))
+    feat = features if torch.is_tensor(features) else torch.from_numpy(np.asarray(features))
+    feat = feat.to(device=emb.device, dtype=emb.dtype)
+    if indices is not None:
+        idx = torch.from_numpy(np.asarray(indices, dtype=np.int64)).to(emb.device)
+        emb = emb.index_select(0, idx)
+    return (emb @ feat.reshape(-1, emb.shape[1]).mT).ravel().cpu().numpy()
+
+
 def _normalize_scores(scores, modality=None):
     """Min-max normalize scores to [0, 1] range.
 
@@ -771,8 +797,7 @@ def search_mixed(
                     gr.update(),
                 )
                 return
-            embeddings = text_image_model.image_embeddings.cpu().numpy()
-            joint_scores = (embeddings @ joint_features.cpu().numpy().T).ravel()
+            joint_scores = _device_matmul_scores(text_image_model.image_embeddings, joint_features)
             final_scores = joint_scores
             status_parts.append("Text+Image (joint)")
         else:
@@ -805,10 +830,9 @@ def search_mixed(
                         gr.update(),
                     )
                     return
-                embeddings = text_image_model.image_embeddings.cpu().numpy()
-                if need_alignment:
-                    embeddings = embeddings[ti_indices]
-                text_scores = (embeddings @ text_features.cpu().numpy().T).ravel()
+                text_scores = _device_matmul_scores(
+                    text_image_model.image_embeddings, text_features, ti_indices if need_alignment else None
+                )
                 text_scores, warn = _normalize_scores(text_scores, modality="Text")
                 if warn:
                     score_warnings.append(warn)
@@ -845,10 +869,9 @@ def search_mixed(
                         gr.update(),
                     )
                     return
-                embeddings = text_image_model.image_embeddings.cpu().numpy()
-                if need_alignment:
-                    embeddings = embeddings[ti_indices]
-                image_scores = (embeddings @ image_features.cpu().numpy().T).ravel()
+                image_scores = _device_matmul_scores(
+                    text_image_model.image_embeddings, image_features, ti_indices if need_alignment else None
+                )
                 image_scores, warn = _normalize_scores(image_scores, modality="Image")
                 if warn:
                     score_warnings.append(warn)
@@ -887,10 +910,9 @@ def search_mixed(
                     gr.update(),
                 )
                 return
-            embeddings = satclip_model.image_embeddings.cpu().numpy()
-            if need_alignment:
-                embeddings = embeddings[loc_indices]
-            loc_scores = (embeddings @ loc_features.cpu().numpy().T).ravel()
+            loc_scores = _device_matmul_scores(
+                satclip_model.image_embeddings, loc_features, loc_indices if need_alignment else None
+            )
             loc_scores, warn = _normalize_scores(loc_scores, modality="Location")
             if warn:
                 score_warnings.append(warn)
