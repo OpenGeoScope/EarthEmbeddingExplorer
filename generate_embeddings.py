@@ -439,26 +439,29 @@ def generate_embeddings(
                             }
                         )
                         if len(batch_items) >= batch_size:
-                            embed_frames.append(
-                                _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
-                            )
+                            batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+                            embed_frames.append(batch_frame)
+                            embed_count += len(batch_frame)
                             batch_items = []
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None) + len(batch_items)
                     else:
                         batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
                         if batch_frame is not None:
                             embed_frames.append(batch_frame)
+                            embed_count += len(batch_frame)
                         batch_items = []
                         embed_dict = embedder(row, row_meta, device=device)
                         embed_frames.append(embed_dict)
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
+                        embed_count += len(embed_dict)
                 else:
                     embed_dict = embedder(row, row_meta, device=device)
                     embed_frames.append(embed_dict)
-                    embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
+                    embed_count += len(embed_dict)
 
                 if (row_idx + 1) % 10 == 0 or row_idx == num_row_groups - 1:
-                    print(f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {embed_count}")
+                    print(
+                        f"  Processed {row_idx + 1}/{num_row_groups} row groups, "
+                        f"total embeddings: {embed_count + len(batch_items)}"
+                    )
 
                 return batch_items
 
@@ -511,22 +514,26 @@ def generate_embeddings(
                             batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
                             if batch_frame is not None:
                                 embed_frames.append(batch_frame)
+                                embed_count += len(batch_frame)
                             batch_items = []
                             _, row, row_meta, _img, _footprint, _crs = result
                             embed_dict = embedder(row, row_meta, device=device)
                             embed_frames.append(embed_dict)
+                            embed_count += len(embed_dict)
                         else:
                             batch_items.append(result)
                             if len(batch_items) >= batch_size:
-                                embed_frames.append(
-                                    _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+                                batch_frame = _flush_single_fragment_batch(
+                                    embedder, batch_items, device, fragment_size
                                 )
+                                embed_frames.append(batch_frame)
+                                embed_count += len(batch_frame)
                                 batch_items = []
 
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None) + len(batch_items)
                         if (row_idx + 1) % 10 == 0 or row_idx == num_row_groups - 1:
                             print(
-                                f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {embed_count}"
+                                f"  Processed {row_idx + 1}/{num_row_groups} row groups, "
+                                f"total embeddings: {embed_count + len(batch_items)}"
                             )
 
             else:
