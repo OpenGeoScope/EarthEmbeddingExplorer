@@ -23,6 +23,14 @@ def test_missing_timestamp_uses_valid_midpoint_date():
     assert OlmoEarthModel._parse_timestamp(None) == (1, 6, 2020)
 
 
+def test_effective_input_resolution_tracks_resize_scale():
+    model = object.__new__(OlmoEarthModel)
+    model.size = (128, 128)
+    model.native_input_res = 10.0
+    assert model._effective_input_res(128, 128) == 10.0
+    assert model._effective_input_res(384, 384) == 30.0
+
+
 def test_timestamp_batch_shape_and_month_indexing():
     result = OlmoEarthModel._prepare_timestamps(
         ["20221115T161819", "20191022T161349"],

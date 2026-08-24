@@ -61,6 +61,7 @@ class OlmoEarthModel:
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
         self.supports_timestamps = True
         self.size = (128, 128)
+        self.native_input_res = 10.0
 
         self.load_model()
         if self.embedding_path is not None:
@@ -188,6 +189,12 @@ class OlmoEarthModel:
         normalized = self.normalizer.normalize(self._modality, np_tensor)
         return torch.from_numpy(normalized).float()
 
+    def _effective_input_res(self, height, width):
+        """Return GSD after resizing a source chip to the encoder input size."""
+        scale_h = height / self.size[0]
+        scale_w = width / self.size[1]
+        return self.native_input_res * (scale_h + scale_w) / 2
+
     @classmethod
     def _parse_timestamp(cls, value):
         """Convert common MajorTOM timestamps to (day, zero-based month, year)."""
@@ -296,6 +303,8 @@ class OlmoEarthModel:
             if isinstance(image, torch.Tensor):
                 if image.dim() == 3:
                     image = image.unsqueeze(0)
+                source_h, source_w = image.shape[-2:]
+                input_res = self._effective_input_res(source_h, source_w)
                 # Resize to model input size if needed
                 if image.shape[-2:] != self.size:
                     image = F.interpolate(image.float(), size=self.size, mode="bilinear", align_corners=False)
@@ -304,7 +313,7 @@ class OlmoEarthModel:
                 from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.nn.flexi_vit import PoolingType
 
                 with torch.no_grad():
-                    output = self.model.encoder(sample, patch_size=8, input_res=10, fast_pass=True)
+                    output = self.model.encoder(sample, patch_size=8, input_res=input_res, fast_pass=True)
                 embedding = output["tokens_and_masks"].pool_unmasked_tokens(pooling_type=PoolingType.MEAN)
                 return embedding
 
@@ -322,12 +331,10 @@ class OlmoEarthModel:
 
             elif isinstance(image, Image.Image):
                 image = image.convert("RGB")
-                # Resize to model input size
-                image = image.resize(self.size)
                 img_np = np.array(image).astype(np.float32)  # (H, W, 3)
 
                 # Construct 12 channels directly in OlmoEarth order.
-                input_tensor = np.zeros((12, self.size[0], self.size[1]), dtype=np.float32)
+                input_tensor = np.zeros((12, img_np.shape[0], img_np.shape[1]), dtype=np.float32)
                 input_tensor[0] = img_np[:, :, 2]  # Blue -> B02
                 input_tensor[1] = img_np[:, :, 1]  # Green -> B03
                 input_tensor[2] = img_np[:, :, 0]  # Red -> B04
