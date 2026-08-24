@@ -31,6 +31,14 @@ def test_effective_input_resolution_tracks_resize_scale():
     assert model._effective_input_res(384, 384) == 30.0
 
 
+def test_global_modelscope_uses_major_tom_mirror():
+    model = object.__new__(OlmoEarthModel)
+    model.model_version = "v1_2"
+    model.model_size = "base"
+    assert model._modelscope_repo_id("modelscope.cn") == "allenai/OlmoEarth-v1_2-Base"
+    assert model._modelscope_repo_id("modelscope.ai") == "Major-TOM/OlmoEarth-v1_2-Base"
+
+
 def test_timestamp_batch_shape_and_month_indexing():
     result = OlmoEarthModel._prepare_timestamps(
         ["20221115T161819", "20191022T161349"],

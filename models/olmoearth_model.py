@@ -120,8 +120,7 @@ class OlmoEarthModel:
                 os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
             else:
                 print(f"Loading OlmoEarth {self.model_version} {self.model_size} from ModelScope (modelscope.cn)...")
-
-            repo_id = f"allenai/OlmoEarth-{self.model_version}-{self.model_size.capitalize()}"
+            repo_id = self._modelscope_repo_id(endpoint)
 
             from modelscope.hub.snapshot_download import snapshot_download
 
@@ -143,6 +142,10 @@ class OlmoEarthModel:
             print(f"OlmoEarth {self.model_version} {self.model_size} loaded on {self.device}")
         except Exception as e:
             print(f"Error loading OlmoEarth model: {e}")
+
+    def _modelscope_repo_id(self, endpoint):
+        namespace = "Major-TOM" if endpoint in ("modelscope.ai", "ai") else "allenai"
+        return f"{namespace}/OlmoEarth-{self.model_version}-{self.model_size.capitalize()}"
 
     def load_embeddings(self):
         """Load pre-computed embeddings from parquet file."""
