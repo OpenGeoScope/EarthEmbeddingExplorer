@@ -41,7 +41,7 @@ The original tiles in Core-S2L2A are large (1068×1068 pixels), but most AI mode
 </div>
 
 ### Retrieval models
-The core of image retrieval includes **CLIP (Contrastive Language-Image Pre-training)** [2] and **DINOv2 (self-supervised vision transformers)** [7]. We use CLIP's improved variants such as **SigLIP (Sigmoid Language-Image Pre-training)** [3], **FarSLIP (Fine-grained Aligned Remote Sensing Language Image Pretraining)** [4], and **SatCLIP (Satellite Location-Image Pretraining)** [5], along with **DINOv2** [7] and **OlmoEarth** [8] for pure visual similarity search. We also use **TIPSv2** [10], a vision-language model with spatially-aware patch-text alignment, and **Qwen3-VL-Embedding** [11], a 2B multimodal embedding model built on Qwen3-VL that natively encodes text+image pairs jointly for mixed search.
+The core of image retrieval includes **CLIP (Contrastive Language-Image Pre-training)** [2] and **DINOv2 (self-supervised vision transformers)** [7]. We use CLIP's improved variants such as **SigLIP (Sigmoid Language-Image Pre-training)** [3], **FarSLIP (Fine-grained Aligned Remote Sensing Language Image Pretraining)** [4], and **SatCLIP (Satellite Location-Image Pretraining)** [5], along with **DINOv2** [7] and **OlmoEarth-v1_2** [8] for visual similarity search. We also use **TIPSv2** [10], a vision-language model with spatially-aware patch-text alignment, and **Qwen3-VL-Embedding** [11], a 2B multimodal embedding model built on Qwen3-VL that natively encodes text+image pairs jointly for mixed search.
 
 
 An analogy: when teaching a child, you show a picture of a glacier and say “glacier”. After seeing many examples, the child learns to associate the visual concept with the word.
@@ -60,7 +60,7 @@ The key property is: if an image matches a text description (or location), their
 
 DINOv2, on the other hand, is a self-supervised vision model that learns rich visual representations without requiring paired text data. It excels at capturing visual patterns and can be used for image-to-image similarity search.
 
-**OlmoEarth** is an Earth-system foundation model trained on Sentinel-2 and derived geospatial maps. It uses a flexible multi-modal architecture and excels at capturing spectral and spatial patterns from 12-band multispectral imagery.
+**OlmoEarth-v1_2** encodes 12-band Sentinel-2 imagery together with the real acquisition timestamp. Its 3D RoPE representation captures both spatial patch position and calendar time.
 
 The eight models we use differ in their encoders and training data:
 
@@ -70,7 +70,7 @@ The eight models we use differ in their encoders and training data:
 | DINOv2 | image encoder only | web-scale natural images (self-supervised) |
 | FarSLIP | image encoder + text encoder | satellite image–text pairs |
 | SatCLIP | image encoder + location encoder | satellite image–location pairs |
-| OlmoEarth | image encoder only | Sentinel-2 + derived maps (self-supervised) |
+| OlmoEarth-v1_2 | image + timestamp encoder | Sentinel-2 + derived-map prediction (self-supervised) |
 | TIPSv2 | image encoder + text encoder | web image–text pairs (spatially-aware pretraining) |
 | Qwen3-VL-Embedding | image encoder + text encoder (VLM) | instruction-aware multimodal pairs |
 
@@ -81,7 +81,7 @@ The eight models we use differ in their encoders and training data:
 </div>
 
 In EarthEmbeddingExplorer:
-1. We precompute embeddings for ~250k globally distributed satellite images using SigLIP, DINOv2, FarSLIP, SatCLIP, OlmoEarth, TIPSv2, and Qwen3-VL-Embedding.
+1. We precompute embeddings for ~250k globally distributed satellite images using SigLIP, DINOv2, FarSLIP, SatCLIP, OlmoEarth-v1_2, TIPSv2, and Qwen3-VL-Embedding.
 2. When you provide a query (text like "a satellite image of glacier", an image, or a location such as (-89, 120)), we encode the query into an embedding using the corresponding encoder.
 3. We compare the query embedding with all image embeddings, visualize similarities on a map, and show the top-5 most similar images.
 
@@ -199,7 +199,7 @@ url={https://openreview.net/forum?id=LSsEenJVqD}
 
 [7] Oquab, M., et al. (2023). DINOv2: Learning Robust Visual Features without Supervision. arXiv preprint arXiv:2304.07193.
 
-[8] Herzog, H., et al. (2025). OlmoEarth: Stable Latent Image Modeling for Multimodal Earth Observation. arXiv preprint arXiv:2511.13655.
+[8] Herzog, H., et al. (2026). OlmoEarth v1.2: A More Efficient Family of OlmoEarth Models. arXiv preprint arXiv:2605.20804.
 
 [9] Zheng, et al. (2026). EarthEmbeddingExplorer: A Web Application for Cross-Modal Retrieval of Global Satellite Images. 4th ICLR Workshop on ML4RS (Tutorial Track)
 
