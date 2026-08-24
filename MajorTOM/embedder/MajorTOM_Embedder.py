@@ -200,7 +200,7 @@ class MajorTOM_Embedder(torch.nn.Module):
                 }
                 df_rows.append(row_dict)
 
-        return gpd.GeoDataFrame(df_rows).astype(self.column_types)
+        return gpd.GeoDataFrame(df_rows, geometry='geometry', crs='EPSG:4326').astype(self.column_types)
 
     def forward_batch(self, rows_and_meta, device='cuda'):
         """
@@ -294,4 +294,4 @@ class MajorTOM_Embedder(torch.nn.Module):
                     }
                     df_rows.append(row_dict)
 
-        return gpd.GeoDataFrame(df_rows).astype(self.column_types)
+        return gpd.GeoDataFrame(df_rows, geometry='geometry', crs='EPSG:4326').astype(self.column_types)

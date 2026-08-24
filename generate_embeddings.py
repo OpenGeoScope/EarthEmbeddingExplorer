@@ -293,7 +293,7 @@ def _build_single_fragment_rows(batch_items, embeddings, fragment_size):
             }
         )
 
-    return gpd.GeoDataFrame(rows).astype(column_types)
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326").astype(column_types)
 
 
 def _flush_single_fragment_batch(embedder, batch_items, device, fragment_size):
