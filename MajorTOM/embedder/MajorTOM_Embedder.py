@@ -129,6 +129,12 @@ class MajorTOM_Embedder(torch.nn.Module):
         img = torch.from_numpy(np.stack(img,-1).astype(np.float32))
 
         return img, footprint, crs
+
+    def _encode_images(self, images, timestamps=None):
+        """Encode images, forwarding timestamps only to temporal embedders."""
+        if getattr(self.embedder, "supports_timestamps", False):
+            return self.embedder(images, timestamps=timestamps)
+        return self.embedder(images)
         
 
     def forward(self, row, row_meta, device='cuda'):
@@ -153,8 +159,12 @@ class MajorTOM_Embedder(torch.nn.Module):
 
         nrows, ncols, c, h, w = fragments.shape
         # Apply the model
+        timestamp = row_meta.timestamp.item()
+        timestamps = [timestamp] * (nrows * ncols)
         with torch.no_grad():
-            embeddings = self.embedder(fragments.reshape(-1,c,h,w).to(device)).view(nrows, ncols, -1)
+            embeddings = self._encode_images(
+                fragments.reshape(-1,c,h,w).to(device), timestamps=timestamps
+            ).view(nrows, ncols, -1)
 
         df_rows = []
 
@@ -206,6 +216,7 @@ class MajorTOM_Embedder(torch.nn.Module):
         """
         contexts = []
         fragment_batches = []
+        batch_timestamps = []
 
         for row, row_meta in rows_and_meta:
             img, footprint, crs = self._read_image(row)
@@ -213,6 +224,7 @@ class MajorTOM_Embedder(torch.nn.Module):
 
             nrows, ncols, c, h, w = fragments.shape
             fragment_batches.append(fragments.reshape(-1, c, h, w))
+            batch_timestamps.extend([row_meta.timestamp.item()] * (nrows * ncols))
             contexts.append({
                 'img_shape': img.shape,
                 'footprint': footprint,
@@ -231,7 +243,7 @@ class MajorTOM_Embedder(torch.nn.Module):
 
         fragments_batch = torch.cat(fragment_batches, dim=0).to(device)
         with torch.no_grad():
-            embeddings = self.embedder(fragments_batch).detach().cpu()
+            embeddings = self._encode_images(fragments_batch, timestamps=batch_timestamps).detach().cpu()
 
         df_rows = []
         offset = 0

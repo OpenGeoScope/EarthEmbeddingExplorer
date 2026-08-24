@@ -250,7 +250,15 @@ def search_text(model_manager, query, threshold, model_name, filter_options=None
         yield gr.update(), f"Error: {e!s}", gr.update(), gr.update(), gr.update(), gr.update()
 
 
-def search_image(model_manager, image_input, threshold, model_name, filter_options=None, multiband_data=None):
+def search_image(
+    model_manager,
+    image_input,
+    threshold,
+    model_name,
+    filter_options=None,
+    multiband_data=None,
+    image_metadata=None,
+):
     """Search satellite imagery using image query."""
     model, error = _get_model_and_error(model_manager, model_name)
     if error:
@@ -278,7 +286,11 @@ def search_image(model_manager, image_input, threshold, model_name, filter_optio
                 # this model expects (no-op if model.bands == MULTIBAND_COLUMNS).
                 multiband_data = reorder_multiband(multiband_data, model.bands)
                 print(f"{model_name}: reordered to bands {model.bands} -> shape {multiband_data.shape}")
-                image_features = model.encode_image(multiband_data)
+                if getattr(model, "supports_timestamps", False):
+                    timestamp = image_metadata.get("timestamp") if image_metadata else None
+                    image_features = model.encode_image(multiband_data, timestamp=timestamp)
+                else:
+                    image_features = model.encode_image(multiband_data)
             else:
                 yield (
                     gr.update(),

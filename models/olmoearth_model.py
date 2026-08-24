@@ -1,4 +1,6 @@
 import os
+import re
+from datetime import date, datetime
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -12,20 +14,23 @@ class OlmoEarthModel:
     OlmoEarth model wrapper for Sentinel-2 multi-spectral data embedding and search.
 
     This class provides a unified interface for:
-    - Loading OlmoEarth models from HuggingFace (Nano/Tiny/Base/Large)
+    - Loading OlmoEarth v1.2 models from HuggingFace or ModelScope
     - Encoding images into embeddings using the OlmoEarth encoder
     - Loading pre-computed embeddings
     - Searching similar images using cosine similarity
 
     OlmoEarth is a multi-modal, spatio-temporal foundation model. This wrapper
-    adapts it for single-timestep (T=1) Sentinel-2 L2A inputs to be compatible
-    with the MajorTOM Core-S2L2A-249k dataset.
+    adapts it for single-timestep (T=1) Sentinel-2 L2A inputs and preserves the
+    acquisition timestamp when it is available in MajorTOM metadata.
     """
+
+    DEFAULT_TIMESTAMP = datetime(2020, 7, 1)
 
     def __init__(
         self,
         ckpt_path=None,
-        model_size="nano",
+        model_size="base",
+        model_version="v1_2",
         embedding_path=None,
         device=None,
     ):
@@ -33,14 +38,16 @@ class OlmoEarthModel:
         Initialize the OlmoEarthModel.
 
         Args:
-            ckpt_path (str): Ignored for OlmoEarth; weights are auto-downloaded
-                from HuggingFace via olmoearth-pretrain-minimal.
-            model_size (str): One of "nano", "tiny", "base", "large".
+            ckpt_path (str): Optional local model directory. Otherwise weights
+                are downloaded from the configured endpoint.
+            model_size (str): One of "nano", "tiny", "small", "base".
+            model_version (str): OlmoEarth release. Defaults to "v1_2".
             embedding_path (str): Path to pre-computed embeddings parquet file.
             device (str): Device to use ('cuda', 'cpu', or None for auto-detection).
         """
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_size = model_size.lower()
+        self.model_version = model_version.lower().replace(".", "_")
         self.ckpt_path = ckpt_path
         self.embedding_path = embedding_path
 
@@ -52,6 +59,7 @@ class OlmoEarthModel:
         # OlmoEarth expected band order (used by reorder_multiband in search_engine / callbacks)
         self.bands = ["B02", "B03", "B04", "B08", "B05", "B06", "B07", "B8A", "B11", "B12", "B01", "B09"]
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
+        self.supports_timestamps = True
         self.size = (128, 128)
 
         self.load_model()
@@ -60,29 +68,32 @@ class OlmoEarthModel:
 
     def load_model(self):
         """Load OlmoEarth model respecting DOWNLOAD_ENDPOINT."""
-        # OlmoEarth requires torch >= 2.8 due to custom C extensions in olmoearth-pretrain-minimal
-        torch_version = torch.__version__.split("+")[0]
-        if torch_version < "2.8":
-            print(f"OlmoEarth requires torch>=2.8, found {torch.__version__}. Skipping model load.")
+        match = re.match(r"^(\d+)\.(\d+)", torch.__version__)
+        torch_version = tuple(int(part) for part in match.groups()) if match else (0, 0)
+        if torch_version < (2, 7):
+            print(f"OlmoEarth requires torch>=2.7, found {torch.__version__}. Skipping model load.")
             return
+
+        if self.model_version != "v1_2":
+            raise ValueError(f"Unsupported OlmoEarth version: {self.model_version}; expected v1_2")
 
         endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
 
         # Determine model source
         if self.ckpt_path is not None and os.path.exists(self.ckpt_path):
             model_path = self.ckpt_path
-            print(f"Loading OlmoEarth {self.model_size} from local path: {model_path}")
+            print(f"Loading OlmoEarth {self.model_version} {self.model_size} from local path: {model_path}")
         elif endpoint in ("huggingface", "hf"):
-            print(f"Loading OlmoEarth {self.model_size} from HuggingFace...")
+            print(f"Loading OlmoEarth {self.model_version} {self.model_size} from HuggingFace...")
             try:
                 from olmoearth_pretrain_minimal import ModelID, Normalizer, load_model_from_id
                 from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.constants import Modality
 
                 size_to_id = {
-                    "nano": ModelID.OLMOEARTH_V1_NANO,
-                    "tiny": ModelID.OLMOEARTH_V1_TINY,
-                    "base": ModelID.OLMOEARTH_V1_BASE,
-                    "large": ModelID.OLMOEARTH_V1_LARGE,
+                    "nano": ModelID.OLMOEARTH_V1_2_NANO,
+                    "tiny": ModelID.OLMOEARTH_V1_2_TINY,
+                    "small": ModelID.OLMOEARTH_V1_2_SMALL,
+                    "base": ModelID.OLMOEARTH_V1_2_BASE,
                 }
 
                 if self.model_size not in size_to_id:
@@ -98,18 +109,18 @@ class OlmoEarthModel:
                 self.normalizer = Normalizer(std_multiplier=2.0)
                 self._modality = Modality.SENTINEL2_L2A
 
-                print(f"OlmoEarth {self.model_size} loaded on {self.device}")
+                print(f"OlmoEarth {self.model_version} {self.model_size} loaded on {self.device}")
             except Exception as e:
                 print(f"Error loading OlmoEarth model: {e}")
             return
         else:
             if endpoint in ("modelscope.ai", "ai"):
-                print(f"Loading OlmoEarth {self.model_size} from ModelScope (modelscope.ai)...")
+                print(f"Loading OlmoEarth {self.model_version} {self.model_size} from ModelScope (modelscope.ai)...")
                 os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
-                repo_id = f"WeijieWu/OlmoEarth-v1-{self.model_size.capitalize()}"
             else:
-                print(f"Loading OlmoEarth {self.model_size} from ModelScope (modelscope.cn)...")
-                repo_id = f"allenai/OlmoEarth-v1-{self.model_size.capitalize()}"
+                print(f"Loading OlmoEarth {self.model_version} {self.model_size} from ModelScope (modelscope.cn)...")
+
+            repo_id = f"allenai/OlmoEarth-{self.model_version}-{self.model_size.capitalize()}"
 
             from modelscope.hub.snapshot_download import snapshot_download
 
@@ -128,7 +139,7 @@ class OlmoEarthModel:
             self.normalizer = Normalizer(std_multiplier=2.0)
             self._modality = Modality.SENTINEL2_L2A
 
-            print(f"OlmoEarth {self.model_size} loaded on {self.device}")
+            print(f"OlmoEarth {self.model_version} {self.model_size} loaded on {self.device}")
         except Exception as e:
             print(f"Error loading OlmoEarth model: {e}")
 
@@ -152,10 +163,11 @@ class OlmoEarthModel:
 
     def _prepare_input(self, tensor):
         """
-        Convert a torch.Tensor from MajorTOM format to OlmoEarth format.
+        Convert an OlmoEarth-ordered torch.Tensor to normalized model input.
 
         Args:
-            tensor (torch.Tensor): Shape (N, C, H, W) where C=12 in MajorTOM order.
+            tensor (torch.Tensor): Shape (N, C, H, W), with C=12 ordered as
+                ``self.bands``.
 
         Returns:
             torch.Tensor: Normalized tensor of shape (N, H, W, T=1, C=12) in
@@ -176,7 +188,65 @@ class OlmoEarthModel:
         normalized = self.normalizer.normalize(self._modality, np_tensor)
         return torch.from_numpy(normalized).float()
 
-    def _create_sample(self, normalized_tensor):
+    @classmethod
+    def _parse_timestamp(cls, value):
+        """Convert common MajorTOM timestamps to (day, zero-based month, year)."""
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            parsed = cls.DEFAULT_TIMESTAMP
+        elif isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, date):
+            parsed = datetime.combine(value, datetime.min.time())
+        elif isinstance(value, np.datetime64):
+            parsed = (
+                cls.DEFAULT_TIMESTAMP
+                if np.isnat(value)
+                else datetime.fromisoformat(np.datetime_as_string(value, unit="s"))
+            )
+        elif hasattr(value, "to_pydatetime"):
+            candidate = value.to_pydatetime()
+            parsed = candidate if isinstance(candidate, datetime) else cls.DEFAULT_TIMESTAMP
+        else:
+            text = value.decode() if isinstance(value, bytes) else str(value).strip()
+            parsed = None
+            if not text or text.lower() in {"nat", "nan", "none"}:
+                return cls._parse_timestamp(None)
+            for fmt in ("%Y%m%dT%H%M%S", "%Y%m%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+                try:
+                    parsed = datetime.strptime(text[: len(datetime.now().strftime(fmt))], fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is None:
+                try:
+                    parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                except ValueError:
+                    parsed = cls.DEFAULT_TIMESTAMP
+
+        return parsed.day, parsed.month - 1, parsed.year
+
+    @classmethod
+    def _prepare_timestamps(cls, timestamps, batch_size, device):
+        """Build a [B, 1, 3] OlmoEarth timestamp tensor."""
+        if torch.is_tensor(timestamps):
+            tensor = timestamps.to(device=device, dtype=torch.long)
+            if tensor.ndim == 2:
+                tensor = tensor.unsqueeze(1)
+            if tensor.shape != (batch_size, 1, 3):
+                raise ValueError(f"Expected timestamps shape {(batch_size, 1, 3)}, got {tuple(tensor.shape)}")
+            return tensor
+
+        if timestamps is None or isinstance(timestamps, (str, bytes, datetime, date, np.datetime64)):
+            values = [timestamps] * batch_size
+        else:
+            values = list(timestamps)
+            if len(values) != batch_size:
+                raise ValueError(f"Expected {batch_size} timestamps, got {len(values)}")
+
+        components = [cls._parse_timestamp(value) for value in values]
+        return torch.tensor(components, dtype=torch.long, device=device).unsqueeze(1)
+
+    def _create_sample(self, normalized_tensor, timestamps=None):
         """
         Build MaskedOlmoEarthSample from normalized tensor.
 
@@ -192,19 +262,16 @@ class OlmoEarthModel:
 
         batch_size = normalized_tensor.shape[0]
         h, w = normalized_tensor.shape[1], normalized_tensor.shape[2]
-        num_bandsets = 3  # Determined empirically from OlmoEarth tokenization config
-
-        timestamps = torch.zeros(batch_size, 1, 3, dtype=torch.long, device=self.device)
-        # Use a default month index (e.g., 6 for July) since single-timestep
-        timestamps[:, 0, 1] = 6
+        num_bandsets = self.model.encoder.patch_embeddings.tokenization_config.get_num_bandsets(self._modality.name)
+        timestamp_tensor = self._prepare_timestamps(timestamps, batch_size, self.device)
 
         return MaskedOlmoEarthSample(
-            timestamps=timestamps,
+            timestamps=timestamp_tensor,
             sentinel2_l2a=normalized_tensor.to(self.device),
             sentinel2_l2a_mask=torch.zeros(batch_size, h, w, 1, num_bandsets, dtype=torch.long, device=self.device),
         )
 
-    def encode_image(self, image, preprocess_s2=True, normalize=True):
+    def encode_image(self, image, preprocess_s2=True, normalize=True, timestamp=None):
         """
         Encode an image into a feature embedding.
 
@@ -215,9 +282,11 @@ class OlmoEarthModel:
                 - np.ndarray: Image array with shape [H, W, C] or [N, H, W, C].
             preprocess_s2 (bool): Ignored for OlmoEarth; kept for API consistency.
             normalize (bool): Ignored for OlmoEarth; kept for API consistency.
+            timestamp: Scalar acquisition time or one timestamp per batch item.
+                Missing values use 2020-07-01, the midpoint of the pretraining period.
 
         Returns:
-            torch.Tensor: Normalized embedding vector with shape [embedding_dim] or
+            torch.Tensor: Embedding vector with shape [embedding_dim] or
                 [N, embedding_dim] for batched input.
         """
         if self.model is None:
@@ -231,7 +300,7 @@ class OlmoEarthModel:
                 if image.shape[-2:] != self.size:
                     image = F.interpolate(image.float(), size=self.size, mode="bilinear", align_corners=False)
                 normalized = self._prepare_input(image)
-                sample = self._create_sample(normalized)
+                sample = self._create_sample(normalized, timestamps=timestamp)
                 from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.nn.flexi_vit import PoolingType
 
                 with torch.no_grad():
@@ -249,7 +318,7 @@ class OlmoEarthModel:
                     image = torch.from_numpy(image)
                 else:
                     raise ValueError(f"Unsupported ndarray shape: {image.shape}")
-                return self.encode_image(image)
+                return self.encode_image(image, timestamp=timestamp)
 
             elif isinstance(image, Image.Image):
                 image = image.convert("RGB")
@@ -257,17 +326,14 @@ class OlmoEarthModel:
                 image = image.resize(self.size)
                 img_np = np.array(image).astype(np.float32)  # (H, W, 3)
 
-                # Construct 12 channels in MajorTOM order.
-                # _prepare_input will reorder to OlmoEarth format.
-                # MajorTOM: [B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12]
-                # RGB maps to B04(R), B03(G), B02(B)
+                # Construct 12 channels directly in OlmoEarth order.
                 input_tensor = np.zeros((12, self.size[0], self.size[1]), dtype=np.float32)
-                input_tensor[1] = img_np[:, :, 2]  # Blue -> B02 (MajorTOM index 1)
-                input_tensor[2] = img_np[:, :, 1]  # Green -> B03 (MajorTOM index 2)
-                input_tensor[3] = img_np[:, :, 0]  # Red -> B04 (MajorTOM index 3)
+                input_tensor[0] = img_np[:, :, 2]  # Blue -> B02
+                input_tensor[1] = img_np[:, :, 1]  # Green -> B03
+                input_tensor[2] = img_np[:, :, 0]  # Red -> B04
 
                 input_tensor = torch.from_numpy(input_tensor).unsqueeze(0)
-                return self.encode_image(input_tensor)
+                return self.encode_image(input_tensor, timestamp=timestamp)
             else:
                 raise ValueError(f"Unsupported image type: {type(image)}")
 
@@ -278,7 +344,7 @@ class OlmoEarthModel:
             traceback.print_exc()
             return None
 
-    def __call__(self, input):
+    def __call__(self, input, timestamps=None):
         """
         Callable wrapper that delegates to forward().
 
@@ -288,21 +354,21 @@ class OlmoEarthModel:
         Returns:
             torch.Tensor: Normalized embedding vector.
         """
-        return self.forward(input)
+        return self.forward(input, timestamps=timestamps)
 
-    def forward(self, input):
+    def forward(self, input, timestamps=None):
         """
         Forward pass for compatibility with MajorTOM_Embedder.
 
         Args:
             input (torch.Tensor): Raw Sentinel-2 image tensor with shape
-                [N, C, H, W] or [C, H, W], where C=12 (MajorTOM band order).
+                [N, C, H, W] or [C, H, W], where C=12 in ``self.bands`` order.
 
         Returns:
             torch.Tensor: Normalized embedding vector with shape [N, embedding_dim]
                 or [embedding_dim].
         """
-        return self.encode_image(input, preprocess_s2=True, normalize=False)
+        return self.encode_image(input, preprocess_s2=True, normalize=False, timestamp=timestamps)
 
     def search(self, query_features, top_k=5, top_percent=None, threshold=0.0):
         """
