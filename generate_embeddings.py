@@ -523,9 +523,7 @@ def generate_embeddings(
                         else:
                             batch_items.append(result)
                             if len(batch_items) >= batch_size:
-                                batch_frame = _flush_single_fragment_batch(
-                                    embedder, batch_items, device, fragment_size
-                                )
+                                batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
                                 embed_frames.append(batch_frame)
                                 embed_count += len(batch_frame)
                                 batch_items = []
