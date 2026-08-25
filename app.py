@@ -425,22 +425,16 @@ div.form:has(.filter-checkbox) {
 
     current_fig = gr.State()
     map_data_state = gr.State()
-    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for SatCLIP encoding
-    image_source = gr.State(value="upload")  # Tracks whether image came from "upload" or "download"
+    multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral encoding
 
-    # Clear multiband state only when user uploads a new image manually,
-    # NOT when the image was programmatically set by the download button.
-    def _clear_multiband_on_upload(img, source):
-        if source == "download":
-            # Image was set by the download button — keep multiband, then reset
-            # the source flag so a later manual upload is not misclassified.
-            return gr.update(), "upload"
-        # User manually uploaded/changed image — discard stale multiband data
-        return None, "upload"
+    # Clear multiband state only when the user manually uploads a new image.
+    # `.upload` fires only on real user uploads; `.change` would also fire when
+    # the image is set programmatically by the download button (and can fire
+    # more than once), which used to clear the downloaded bands before search.
+    def _clear_multiband_on_upload():
+        return None
 
-    image_input.change(
-        fn=_clear_multiband_on_upload, inputs=[image_input, image_source], outputs=[multiband_state, image_source]
-    )
+    image_input.upload(fn=_clear_multiband_on_upload, outputs=[multiband_state])
 
     # Initial Load
     demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
@@ -468,14 +462,13 @@ div.form:has(.filter-checkbox) {
     )
 
     # Download Image by Geolocation
-    def _download_and_mark_source(lat, lon, pid, model_name):
-        img, status, multiband = download_image_by_location(lat, lon, pid, model_name, models)
-        return img, status, multiband, "download"
+    def _download_image(lat, lon, pid, model_name):
+        return download_image_by_location(lat, lon, pid, model_name, models)
 
     btn_download_img.click(
-        fn=_download_and_mark_source,
+        fn=_download_image,
         inputs=[img_lat, img_lon, img_pid, model_selector_img],
-        outputs=[image_input, img_click_status, multiband_state, image_source],
+        outputs=[image_input, img_click_status, multiband_state],
     )
 
     # Filter toggle events
