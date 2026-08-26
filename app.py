@@ -436,6 +436,10 @@ div.form:has(.filter-checkbox) {
 
     image_input.upload(fn=_clear_multiband_on_upload, outputs=[multiband_state])
 
+    # Picking an example also replaces the query image, but programmatically
+    # (no `.upload` event), so discard the downloaded bands on example clicks too.
+    ex_img.dataset.select(fn=_clear_multiband_on_upload, outputs=[multiband_state])
+
     # Initial Load
     demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
 
