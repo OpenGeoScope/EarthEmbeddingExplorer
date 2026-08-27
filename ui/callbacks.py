@@ -152,15 +152,15 @@ def download_image_by_location(lat, lon, pid, model_name, models):
     returned tuple for subsequent encoding.
 
     Returns:
-        (thumbnail_img, status_msg, multiband_array_or_None)
+        (thumbnail_img, status_msg, multiband_array_or_None, image_metadata_or_None)
     """
     print(f"DEBUG download_image_by_location: lat={lat}, lon={lon}, model_name={model_name}")
     if lat is None or lon is None:
-        return None, "Please specify coordinates first.", None
+        return None, "Please specify coordinates first.", None, None
 
     model = models.get(model_name)
     if model is None:
-        return None, f"Model {model_name} not loaded.", None
+        return None, f"Model {model_name} not loaded.", None, None
 
     try:
         # Convert to float to ensure proper formatting
@@ -169,7 +169,7 @@ def download_image_by_location(lat, lon, pid, model_name, models):
 
         df = model.df_embed
         if df is None:
-            return None, f"Model {model_name} embeddings not loaded (metadata missing).", None
+            return None, f"Model {model_name} embeddings not loaded (metadata missing).", None, None
 
         # Find Product ID if not provided
         if not pid:
@@ -187,6 +187,7 @@ def download_image_by_location(lat, lon, pid, model_name, models):
                     f"Nearest sample is {dist_deg:.1f}° away from ({lat:.4f}, {lon:.4f}) — too far to download. "
                     "Please click on the map to select a sample or refine the coordinates.",
                     None,
+                    None,
                 )
             pid = df.loc[nearest_idx, "product_id"]
         elif pid not in df["product_id"].values:
@@ -197,7 +198,14 @@ def download_image_by_location(lat, lon, pid, model_name, models):
                 f"Product ID '{pid}' not found in {model_name} embeddings. "
                 "Please click the map again to re-select a sample for this model.",
                 None,
+                None,
             )
+
+        source_row = df.loc[df["product_id"] == pid].iloc[0]
+        image_metadata = {
+            "product_id": pid,
+            "timestamp": source_row.get("timestamp"),
+        }
 
         # For multi-spectral models: download multiband for encoding; thumbnail for display
         needs_multiband = getattr(model, "requires_multiband", False)
@@ -205,19 +213,24 @@ def download_image_by_location(lat, lon, pid, model_name, models):
             result = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="multiband")
             img_384, _, multiband_array = result
             if img_384 is None:
-                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None
-            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}]", multiband_array
+                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None, None
+            return (
+                img_384,
+                f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}]",
+                multiband_array,
+                image_metadata,
+            )
         else:
             img_384, _ = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="thumbnail")
             if img_384 is None:
-                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None
-            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f})", None
+                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None, None
+            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f})", None, image_metadata
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        return None, f"Error: {e!s}", None
+        return None, f"Error: {e!s}", None, None
 
 
 def reset_to_global_map(models):

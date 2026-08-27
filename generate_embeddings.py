@@ -104,6 +104,8 @@ def get_model_kwargs(model_name, device):
             kwargs["tokenizer_path"] = model_cfg["tokenizer_path"]
         if "model_size" in model_cfg:
             kwargs["model_size"] = model_cfg["model_size"]
+        if "model_version" in model_cfg:
+            kwargs["model_version"] = model_cfg["model_version"]
         if "image_size" in model_cfg:
             kwargs["image_size"] = model_cfg["image_size"]
         if "repo_path" in model_cfg:
@@ -154,8 +156,8 @@ def _rewrite_parquet_url_for_subset(parquet_url, local_pf_path):
     When the local input parquet comes from the Core-S2L2A-249k subset
     (e.g. downloaded from ModelScope), the metadata may still point to the
     full Core-S2L2A dataset whose row ordering differs from the subset.
-    Rewriting the URL to the 249k subset ensures that the stored parquet_row
-    remains valid for downstream thumbnail/RGB loading.
+    The caller must also replace parquet_row with the local subset row-group
+    index because the full and subset datasets use different row ordering.
     """
     local_pf_path = local_pf_path or ""
     # Only rewrite when the local source is the 249k subset.
@@ -173,19 +175,23 @@ def _rewrite_parquet_url_for_subset(parquet_url, local_pf_path):
     )
 
 
-def _rewrite_row_meta_parquet_url(row_meta, pf_path):
-    """Rewrite the parquet_url of a single-row metadata DataFrame if needed.
+def _rewrite_row_meta_parquet_location(row_meta, pf_path, row_idx):
+    """Rewrite parquet_url and parquet_row for a local 249k subset row.
 
     Only local Core-S2L2A-249k subset files trigger a rewrite;
     _rewrite_parquet_url_for_subset has an internal path whitelist, so
-    non-249k inputs are returned unchanged. Returns row_meta as-is when no
-    rewrite applies, otherwise a rewritten copy.
+    non-249k inputs are returned unchanged.
     """
     if not os.path.isfile(pf_path):
         return row_meta
-    row_meta = row_meta.copy()
     original_url = row_meta["parquet_url"].iloc[0] if "parquet_url" in row_meta.columns else None
-    row_meta["parquet_url"] = _rewrite_parquet_url_for_subset(original_url, pf_path)
+    rewritten_url = _rewrite_parquet_url_for_subset(original_url, pf_path)
+    if rewritten_url == original_url:
+        return row_meta
+
+    row_meta = row_meta.copy()
+    row_meta["parquet_url"] = rewritten_url
+    row_meta["parquet_row"] = row_idx
     return row_meta
 
 
@@ -219,7 +225,7 @@ def _prepare_single_fragment_image(img, fragment_size):
     return img.permute(2, 0, 1)
 
 
-def _decode_single_fragment_row(row, fragment_size, meta_index, embedder, pf_path):
+def _decode_single_fragment_row(row, row_meta, fragment_size, embedder):
     """Decode one parquet row for single-fragment embedding.
 
     Returns either:
@@ -230,14 +236,8 @@ def _decode_single_fragment_row(row, fragment_size, meta_index, embedder, pf_pat
         path.
       - ``None`` when metadata is missing.
     """
-    grid_cell = row["grid_cell"][0].as_py()
-    product_id = row["product_id"][0].as_py()
-
-    row_meta = _metadata_lookup(meta_index, grid_cell, product_id)
     if row_meta is None or row_meta.empty:
         return None
-
-    row_meta = _rewrite_row_meta_parquet_url(row_meta, pf_path)
 
     img, footprint, crs = embedder._read_image(row)
     h, w = img.shape[:2]
@@ -293,7 +293,7 @@ def _build_single_fragment_rows(batch_items, embeddings, fragment_size):
             }
         )
 
-    return gpd.GeoDataFrame(rows).astype(column_types)
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326").astype(column_types)
 
 
 def _flush_single_fragment_batch(embedder, batch_items, device, fragment_size):
@@ -302,8 +302,9 @@ def _flush_single_fragment_batch(embedder, batch_items, device, fragment_size):
         return None
 
     image_batch = torch.stack([item["image"] for item in batch_items], dim=0).to(device, non_blocking=True)
+    timestamps = [_first_value(item["row_meta"], "timestamp") for item in batch_items]
     with torch.no_grad():
-        embeddings = embedder.embedder(image_batch)
+        embeddings = embedder._encode_images(image_batch, timestamps=timestamps)
     return _build_single_fragment_rows(batch_items, embeddings, fragment_size)
 
 
@@ -318,10 +319,14 @@ def generate_embeddings(
     batch_size=16,
     preload_parquet=False,
     num_workers=None,
+    num_shards=1,
+    shard_index=0,
 ):
     """Main embedding generation logic."""
     if model_name not in MODEL_MAP:
         raise ValueError(f"Unknown model: {model_name}. Choose from {list(MODEL_MAP.keys())}")
+    if num_shards < 1 or not 0 <= shard_index < num_shards:
+        raise ValueError(f"Expected 0 <= shard_index < num_shards, got {shard_index=} and {num_shards=}")
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -350,8 +355,12 @@ def generate_embeddings(
     if num_workers is None:
         num_workers = batch_size if use_single_fragment else 1
 
-    parquet_files = get_parquet_files(parquet_input)
-    print(f"Found {len(parquet_files)} parquet file(s) to process.")
+    all_parquet_files = get_parquet_files(parquet_input)
+    parquet_files = all_parquet_files[shard_index::num_shards]
+    print(
+        f"Found {len(all_parquet_files)} parquet file(s); "
+        f"shard {shard_index}/{num_shards} will process {len(parquet_files)}."
+    )
     print(f"Single-fragment decoding workers: {num_workers}")
 
     embed_frames = []
@@ -364,7 +373,7 @@ def generate_embeddings(
         if resolved_meta not in meta_cache:
             print(f"Loading metadata from {resolved_meta} ...")
             meta_df = pd.read_parquet(resolved_meta)
-            meta_cache[resolved_meta] = meta_df.set_index(["grid_cell", "product_id"], drop=False)
+            meta_cache[resolved_meta] = meta_df.set_index(["grid_cell", "product_id"], drop=False).sort_index()
         else:
             print(f"Reusing metadata from {resolved_meta} ...")
         meta_index = meta_cache[resolved_meta]
@@ -413,10 +422,9 @@ def generate_embeddings(
 
                 # The metadata's parquet_url usually points to the full Core-S2L2A
                 # dataset, but when we process the local Core-S2L2A-249k subset the
-                # row numbers correspond to the subset ordering. Rewrite the URL to
-                # the ModelScope Core-S2L2A-249k dataset so that downstream readers
-                # (web UI, data_utils) can fetch the correct thumbnail/RGB.
-                row_meta = _rewrite_row_meta_parquet_url(row_meta, pf_path)
+                # row numbers correspond to the subset ordering. Rewrite both the
+                # URL and row index so downstream readers fetch the same product.
+                row_meta = _rewrite_row_meta_parquet_location(row_meta, pf_path, row_idx)
 
                 if use_single_fragment:
                     img, footprint, crs = embedder._read_image(row)
@@ -431,26 +439,29 @@ def generate_embeddings(
                             }
                         )
                         if len(batch_items) >= batch_size:
-                            embed_frames.append(
-                                _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
-                            )
+                            batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+                            embed_frames.append(batch_frame)
+                            embed_count += len(batch_frame)
                             batch_items = []
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None) + len(batch_items)
                     else:
                         batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
                         if batch_frame is not None:
                             embed_frames.append(batch_frame)
+                            embed_count += len(batch_frame)
                         batch_items = []
                         embed_dict = embedder(row, row_meta, device=device)
                         embed_frames.append(embed_dict)
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
+                        embed_count += len(embed_dict)
                 else:
                     embed_dict = embedder(row, row_meta, device=device)
                     embed_frames.append(embed_dict)
-                    embed_count = sum(len(frame) for frame in embed_frames if frame is not None)
+                    embed_count += len(embed_dict)
 
                 if (row_idx + 1) % 10 == 0 or row_idx == num_row_groups - 1:
-                    print(f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {embed_count}")
+                    print(
+                        f"  Processed {row_idx + 1}/{num_row_groups} row groups, "
+                        f"total embeddings: {embed_count + len(batch_items)}"
+                    )
 
                 return batch_items
 
@@ -466,19 +477,32 @@ def generate_embeddings(
                     row_table = pf.read_row_groups(row_group_indices, columns=columns)
 
                     rows_to_decode = [row_table.slice(row_pos, 1) for row_pos in range(len(row_group_indices))]
+                    row_metas = []
+                    for row, row_idx in zip(rows_to_decode, row_group_indices, strict=True):
+                        grid_cell = row["grid_cell"][0].as_py()
+                        product_id = row["product_id"][0].as_py()
+                        row_meta = _metadata_lookup(meta_index, grid_cell, product_id)
+                        if row_meta is not None and not row_meta.empty:
+                            row_meta = _rewrite_row_meta_parquet_location(row_meta, pf_path, row_idx)
+                        row_metas.append(row_meta)
+
                     if num_workers > 1:
                         with ThreadPoolExecutor(max_workers=num_workers) as executor:
                             futures = [
                                 executor.submit(
-                                    _decode_single_fragment_row, row, fragment_size, meta_index, embedder, pf_path
+                                    _decode_single_fragment_row,
+                                    row,
+                                    row_meta,
+                                    fragment_size,
+                                    embedder,
                                 )
-                                for row in rows_to_decode
+                                for row, row_meta in zip(rows_to_decode, row_metas, strict=True)
                             ]
                             decoded = [future.result() for future in futures]
                     else:
                         decoded = [
-                            _decode_single_fragment_row(row, fragment_size, meta_index, embedder, pf_path)
-                            for row in rows_to_decode
+                            _decode_single_fragment_row(row, row_meta, fragment_size, embedder)
+                            for row, row_meta in zip(rows_to_decode, row_metas, strict=True)
                         ]
 
                     for row_pos, row_idx in enumerate(row_group_indices):
@@ -490,22 +514,24 @@ def generate_embeddings(
                             batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
                             if batch_frame is not None:
                                 embed_frames.append(batch_frame)
+                                embed_count += len(batch_frame)
                             batch_items = []
                             _, row, row_meta, _img, _footprint, _crs = result
                             embed_dict = embedder(row, row_meta, device=device)
                             embed_frames.append(embed_dict)
+                            embed_count += len(embed_dict)
                         else:
                             batch_items.append(result)
                             if len(batch_items) >= batch_size:
-                                embed_frames.append(
-                                    _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
-                                )
+                                batch_frame = _flush_single_fragment_batch(embedder, batch_items, device, fragment_size)
+                                embed_frames.append(batch_frame)
+                                embed_count += len(batch_frame)
                                 batch_items = []
 
-                        embed_count = sum(len(frame) for frame in embed_frames if frame is not None) + len(batch_items)
                         if (row_idx + 1) % 10 == 0 or row_idx == num_row_groups - 1:
                             print(
-                                f"  Processed {row_idx + 1}/{num_row_groups} row groups, total embeddings: {embed_count}"
+                                f"  Processed {row_idx + 1}/{num_row_groups} row groups, "
+                                f"total embeddings: {embed_count + len(batch_items)}"
                             )
 
             else:
@@ -596,6 +622,8 @@ def main():
             "Defaults to batch_size when fragment_size is set."
         ),
     )
+    parser.add_argument("--num_shards", type=int, default=1, help="Split input parquet files into this many shards.")
+    parser.add_argument("--shard_index", type=int, default=0, help="Zero-based shard to process.")
 
     args = parser.parse_args()
     generate_embeddings(
@@ -609,6 +637,8 @@ def main():
         batch_size=args.batch_size,
         preload_parquet=args.preload_parquet,
         num_workers=args.num_workers,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
     )
 
 

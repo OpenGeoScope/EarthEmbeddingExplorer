@@ -25,10 +25,11 @@ class ModelManager:
         "SatCLIP",
         "FarSLIP",
         "Clay",
-        "OlmoEarth",
+        "OlmoEarth-v1_2",
         "Qwen3VL",
     )
     _MODEL_ALIASES: ClassVar[dict[str, str]] = {model_name.lower(): model_name for model_name in MODEL_LOAD_ORDER}
+    _MODEL_ALIASES.update({"olmoearth": "OlmoEarth-v1_2", "olmoearth-v1.2": "OlmoEarth-v1_2"})
 
     def __init__(self, device=None, selected_models=None):
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,7 +97,7 @@ class ModelManager:
             "SatCLIP": self._load_satclip,
             "FarSLIP": self._load_farslip,
             "Clay": self._load_clay,
-            "OlmoEarth": self._load_olmoearth,
+            "OlmoEarth-v1_2": self._load_olmoearth,
             "Qwen3VL": self._load_qwen3vl,
         }
         for model_name in self.selected_models:
@@ -214,14 +215,15 @@ class ModelManager:
         """Load OlmoEarth model."""
         try:
             if self.config and "olmoearth" in self.config:
-                self.models["OlmoEarth"] = OlmoEarthModel(
+                self.models["OlmoEarth-v1_2"] = OlmoEarthModel(
                     ckpt_path=self.config["olmoearth"].get("ckpt_path"),
-                    model_size=self.config["olmoearth"].get("model_size", "nano"),
+                    model_size=self.config["olmoearth"].get("model_size", "base"),
+                    model_version=self.config["olmoearth"].get("model_version", "v1_2"),
                     embedding_path=self.config["olmoearth"].get("embedding_path"),
                     device=self.device,
                 )
             else:
-                self.models["OlmoEarth"] = OlmoEarthModel(device=self.device)
+                self.models["OlmoEarth-v1_2"] = OlmoEarthModel(device=self.device)
         except Exception as e:
             print(f"Failed to load OlmoEarth: {e}")
 

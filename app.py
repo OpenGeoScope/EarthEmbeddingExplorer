@@ -42,7 +42,7 @@ def _get_requested_models():
         "--models",
         type=str,
         default=None,
-        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,TIPSv2,SatCLIP,FarSLIP,Clay,OlmoEarth,Qwen3VL.",
+        help="Comma-separated models to load. Use all, or any of: DINOv2,SigLIP,TIPSv2,SatCLIP,FarSLIP,Clay,OlmoEarth-v1_2,Qwen3VL.",
     )
     args, _ = parser.parse_known_args()
     return args.models or os.getenv("EEX_MODELS")
@@ -74,7 +74,7 @@ print("Warm-up done.")
 
 TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL"])
 IMAGE_MODELS = _ordered_available_models(
-    ["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"]
+    ["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth-v1_2"]
 )
 MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
@@ -265,7 +265,7 @@ div.form:has(.filter-checkbox) {
                     )
 
                     gr.Markdown(
-                        "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth), please select a geolocation on the map "
+                        "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth-v1_2), please select a geolocation on the map "
                         "or enter coordinates below, then click **'Download Image by Geolocation'** to fetch the Sentinel-2 "
                         "multi-band image before running the search. RGB uploads are not compatible with these models."
                     )
@@ -426,19 +426,25 @@ div.form:has(.filter-checkbox) {
     current_fig = gr.State()
     map_data_state = gr.State()
     multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral encoding
+    image_metadata_state = gr.State(value=None)  # Stores product_id and acquisition timestamp
 
-    # Clear multiband state only when the user manually uploads a new image.
-    # `.upload` fires only on real user uploads; `.change` would also fire when
-    # the image is set programmatically by the download button (and can fire
-    # more than once), which used to clear the downloaded bands before search.
-    def _clear_multiband_on_upload():
-        return None
+    # Clear downloaded bands and timestamp only when the user replaces the
+    # query image. `.input` covers upload, webcam, and clipboard sources but,
+    # unlike `.change`, does not fire for the download button's programmatic update.
+    def _clear_downloaded_image_state():
+        return None, None
 
-    image_input.upload(fn=_clear_multiband_on_upload, outputs=[multiband_state])
+    image_input.input(
+        fn=_clear_downloaded_image_state,
+        outputs=[multiband_state, image_metadata_state],
+    )
 
     # Picking an example also replaces the query image, but programmatically
-    # (no `.upload` event), so discard the downloaded bands on example clicks too.
-    ex_img.dataset.select(fn=_clear_multiband_on_upload, outputs=[multiband_state])
+    # (no `.input` event), so discard both states on example clicks too.
+    ex_img.dataset.select(
+        fn=_clear_downloaded_image_state,
+        outputs=[multiband_state, image_metadata_state],
+    )
 
     # Initial Load
     demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
@@ -472,7 +478,7 @@ div.form:has(.filter-checkbox) {
     btn_download_img.click(
         fn=_download_image,
         inputs=[img_lat, img_lon, img_pid, model_selector_img],
-        outputs=[image_input, img_click_status, multiband_state],
+        outputs=[image_input, img_click_status, multiband_state, image_metadata_state],
     )
 
     # Filter toggle events
@@ -524,9 +530,18 @@ div.form:has(.filter-checkbox) {
         lon_min,
         lon_max,
         multiband_data=None,
+        image_metadata=None,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from _search_image(model_manager, image_input, threshold, model_name, fo, multiband_data=multiband_data)
+        yield from _search_image(
+            model_manager,
+            image_input,
+            threshold,
+            model_name,
+            fo,
+            multiband_data=multiband_data,
+            image_metadata=image_metadata,
+        )
 
     def _wrap_search_location(
         lat, lon, threshold, enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
@@ -611,7 +626,14 @@ div.form:has(.filter-checkbox) {
     # Search Event (Image)
     search_img_btn.click(
         fn=_wrap_search_image,
-        inputs=[image_input, threshold_slider, model_selector_img, *_filter_inputs, multiband_state],
+        inputs=[
+            image_input,
+            threshold_slider,
+            model_selector_img,
+            *_filter_inputs,
+            multiband_state,
+            image_metadata_state,
+        ],
         outputs=[
             gallery_images,
             status_output,

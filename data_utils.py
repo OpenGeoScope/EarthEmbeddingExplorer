@@ -1,6 +1,7 @@
 import os
 from io import BytesIO
 
+import cv2
 import fsspec
 import numpy as np
 import pyarrow.parquet as pq
@@ -117,16 +118,24 @@ def _prepare_row_dict(product_id, df_source, verbose=True):
 
     if "parquet_url" in row_dict:
         url = row_dict["parquet_url"]
+        endpoint = os.getenv("DOWNLOAD_ENDPOINT", "modelscope.cn")
+        preferred_host = "www.modelscope.ai" if endpoint in ("modelscope.ai", "ai") else "www.modelscope.cn"
         if "huggingface.co" in url:
-            row_dict["parquet_url"] = url.replace("https://huggingface.co", "https://modelscope.cn").replace(
+            url = url.replace("https://huggingface.co", f"https://{preferred_host}").replace(
                 "resolve/main", "resolve/master"
             )
+        elif "modelscope.cn" in url or "modelscope.ai" in url:
+            url = url.replace("www.modelscope.cn", preferred_host).replace("www.modelscope.ai", preferred_host)
+            url = url.replace("https://modelscope.cn", f"https://{preferred_host}").replace(
+                "https://modelscope.ai", f"https://{preferred_host}"
+            )
+        row_dict["parquet_url"] = url
 
         # Use a locally available MajorTOM source-image mirror if it exists.
         # Set MAJOR_TOM_LOCAL_IMAGES to the directory containing images_249k/.
         local_root = os.getenv("MAJOR_TOM_LOCAL_IMAGES")
         if local_root:
-            parsed = url.split("/")
+            parsed = row_dict["parquet_url"].split("/")
             if "images_249k" in parsed:
                 filename = parsed[-1]
                 local_path = os.path.join(local_root, "images_249k", filename)
@@ -337,9 +346,9 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
                     if arr.shape[:2] != ref_shape:
                         if verbose:
                             print(f"⚠️ Band {band_name} shape {arr.shape} != ref {ref_shape}, resizing.")
-                        arr_pil = Image.fromarray(arr)
-                        arr_pil = arr_pil.resize((ref_shape[1], ref_shape[0]), resample=Image.BICUBIC)
-                        arr = np.array(arr_pil)
+                        # Match MajorTOM_Embedder._read_image so offline index
+                        # generation and online query encoding see identical pixels.
+                        arr = cv2.resize(arr, (ref_shape[1], ref_shape[0]), interpolation=cv2.INTER_NEAREST)
                     band_arrays.append(arr)
             multiband_array = np.stack(band_arrays, axis=-1)  # (H, W, 12)
 

@@ -43,7 +43,7 @@ MODEL_CLASS_MAP = {
     "Clay": ClayModel,
     "DINOv2": DINOv2Model,
     "FarSLIP": FarSLIPModel,
-    "OlmoEarth": OlmoEarthModel,
+    "OlmoEarth-v1_2": OlmoEarthModel,
     "Qwen3VL": Qwen3VLEmbeddingModel,
     "SatCLIP": SatCLIPModel,
     "SigLIP": SigLIPModel,
@@ -57,7 +57,7 @@ DEFAULT_LON = -63.0
 
 # All supported models — no hard-coded spectral categories.
 # A model declares itself as multi-spectral via `requires_multiband = True`.
-ALL_MODELS = {"SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth"}
+ALL_MODELS = {"SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL", "SatCLIP", "DINOv2", "Clay", "OlmoEarth-v1_2"}
 
 
 def find_nearest_product_id(model, lat, lon):
@@ -82,13 +82,14 @@ def download_image_for_model(model, pid, df_embed):
     12-band numpy array; RGB models receive the PIL thumbnail.
     """
     needs_multiband = getattr(model, "requires_multiband", False)
+    timestamp = df_embed.loc[df_embed["product_id"] == pid, "timestamp"].iloc[0]
     if needs_multiband:
         result = download_and_process_image(pid, df_source=df_embed, verbose=False, mode="multiband")
         img_384, _, multiband = result
-        return img_384, multiband
+        return img_384, multiband, timestamp
     else:
         img_384, _img_full = download_and_process_image(pid, df_source=df_embed, verbose=False, mode="thumbnail")
-        return img_384, None
+        return img_384, None, timestamp
 
 
 def test_model_image_search(model_manager, model_name, lat, lon, model=None):
@@ -114,7 +115,7 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
         print(f"📍 Nearest product: {pid} at ({actual_lat:.4f}, {actual_lon:.4f})")
 
         # 2. Download image
-        img_384, multiband = download_image_for_model(model, pid, model.df_embed)
+        img_384, multiband, timestamp = download_image_for_model(model, pid, model.df_embed)
         if img_384 is None:
             print(f"❌ Failed to download image for {pid}")
             return False
@@ -128,7 +129,10 @@ def test_model_image_search(model_manager, model_name, lat, lon, model=None):
             # Reorder from generic 12-band MajorTOM format to model-specific bands
             multiband = reorder_multiband(multiband, model.bands)
             print(f"📊 Reordered multiband to {model.bands} -> shape {multiband.shape}")
-            image_features = model.encode_image(multiband)
+            if getattr(model, "supports_timestamps", False):
+                image_features = model.encode_image(multiband, timestamp=timestamp)
+            else:
+                image_features = model.encode_image(multiband)
         else:
             image_features = model.encode_image(img_384)
 
@@ -188,6 +192,8 @@ def load_single_model(model_name, device="cuda"):
         kwargs["embedding_path"] = model_cfg["embedding_path"]
     if "model_size" in model_cfg:
         kwargs["model_size"] = model_cfg["model_size"]
+    if "model_version" in model_cfg:
+        kwargs["model_version"] = model_cfg["model_version"]
 
     print(f"Loading {model_name}...")
     model = model_cls(**kwargs)

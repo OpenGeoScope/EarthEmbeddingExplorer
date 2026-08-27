@@ -93,7 +93,7 @@ The retrieval engine is powered by six complementary embedding models. Think of 
 | **SatCLIP** [5] | image + location | Satellite image–GPS coordinate pairs | Location-aware retrieval |
 | **DINOv2** [7] | image only | Natural images (self-supervised) | Pure visual similarity search |
 | **Clay** [9] | image only | Multi-sensor EO (MAE self-supervised) | Multi-spectral Earth observation features |
-| **OlmoEarth** [10] | image only | Sentinel-2 L2A + 6 derived maps (self-supervised) | Pure visual similarity with spectral awareness |
+| **OlmoEarth-v1_2** [10] | image + time | Sentinel-2 L2A + derived-map prediction (self-supervised) | Timestamp-aware multispectral similarity |
 | **TIPSv2** [11] | image + text | Web image–text pairs (spatially-aware pretraining) | Open-vocabulary queries with strong patch-text alignment |
 | **Qwen3-VL-Embedding** [12] | image + text | Instruction-aware multimodal VLM embeddings | Native text+image joint encoding for mixed search |
 
@@ -102,7 +102,7 @@ The retrieval engine is powered by six complementary embedding models. Think of 
 - **SatCLIP** jointly encodes images and their geographic coordinates, enabling queries like *"show me places near (lat, lon)"*.
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
 - **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. It captures rich geospatial features across 10 Sentinel-2 bands, making it ideal for pure visual similarity search in the remote-sensing domain.
-- **OlmoEarth** is an Earth-system foundation model trained on Sentinel-2 and derived geospatial maps. It uses a flexible multi-modal architecture and excels at capturing spectral and spatial patterns from 12-band multispectral imagery.
+- **OlmoEarth-v1_2** uses 12-band Sentinel-2 imagery and its real acquisition timestamp. Its 3D RoPE encoding captures spatial and calendar-time relationships for image-to-image retrieval.
 - **TIPSv2** enhances patch-text alignment via patch-level distillation and an upgraded masked-image objective, giving spatially rich features that stay aligned with open-vocabulary text queries.
 - **Qwen3-VL-Embedding** is a 2B multimodal embedding model built on Qwen3-VL. Besides text and image queries, it natively encodes text+image pairs jointly, which we use for the mixed search mode.
 
@@ -162,11 +162,11 @@ Each embedding dataset contains the vector representation of every sampled image
 | DINOv2 | Core-S2RGB-249k-DINOv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-DINOv2) |
 | SatCLIP | Core-S2RGB-249k-SatCLIP | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-SatCLIP) |
 | Clay | Core-S2L2A-249k-Clay-v1.5 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-Clay-v1.5) |
-| OlmoEarth | Core-S2RGB-249k-OlmoEarth | [ModelScope](https://modelscope.cn/datasets/WeijieWu/olmoearth_embdding) |
+| OlmoEarth-v1_2 | Core-S2L2A-249k-OlmoEarth-v1_2-Base | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2L2A-249k-OlmoEarth-v1_2-Base) |
 | TIPSv2 | Core-S2RGB-249k-TIPSv2 | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-TIPSv2) |
 | Qwen3-VL-Embedding | Core-S2RGB-249k-Qwen3-VL-Embedding | [ModelScope](https://modelscope.cn/datasets/Major-TOM/Core-S2RGB-249k-Qwen3-VL-Embedding) |
 
-> **Note for developers:** The `parquet_url` field stores a direct HuggingFace URL (e.g., `https://huggingface.co/datasets/Major-TOM/Core-S2L2A/resolve/main/images/part_00001.parquet`) and `parquet_row` stores the global row index, enabling online image download when the app is deployed on ModelScope or Hugging Face Spaces.
+> **Note for developers:** `parquet_url` and `parquet_row` jointly identify the exact row group in the referenced source dataset. Do not mix row indices from the full Core-S2L2A dataset with URLs for the 249k subset.
 
 ---
 
@@ -190,7 +190,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-> **Note on OlmoEarth compatibility:** `olmoearth-pretrain-minimal` requires `torch >= 2.8, < 2.9`. If your environment has an older PyTorch version, we strongly recommend creating a dedicated conda environment to avoid conflicts:
+> **Note on OlmoEarth compatibility:** OlmoEarth-v1_2 requires `olmoearth-pretrain-minimal >= 0.0.7`, whose runtime requires `torch >= 2.7`. If your environment has an older PyTorch version, create a dedicated conda environment:
 > ```bash
 > conda create -n eee python=3.12
 > conda activate eee
@@ -275,7 +275,7 @@ We thank the following open-source projects and datasets that made EarthEmbeddin
 - [SatCLIP](https://github.com/microsoft/satclip) — Satellite location-image pretraining
 - [DINOv2](https://huggingface.co/facebook/dinov2-large) — Self-supervised vision transformer
 - [Clay](https://github.com/Clay-foundation/model) — Multi-spectral Earth observation foundation model
-- [OlmoEarth](https://huggingface.co/allenai/OlmoEarth-Base-WS) — Earth-system foundation model for multimodal Earth observation
+- [OlmoEarth-v1_2](https://modelscope.cn/models/allenai/OlmoEarth-v1_2-Base) — Timestamp-aware Earth-system foundation model
 - [TIPSv2](https://github.com/google-deepmind/tips) — Vision-language models with spatially aware patch-text alignment
 - [Qwen3-VL-Embedding](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) — Multimodal embedding model built on Qwen3-VL
 
@@ -331,7 +331,7 @@ If you use EarthEmbeddingExplorer in your research, please cite:
 
 [9] Development Seed. (2024). Clay: An Open Source AI Model and Interface for Earth. *https://github.com/Clay-foundation/model*.
 
-[10] Herzog, H., et al. (2025). OlmoEarth: Stable Latent Image Modeling for Multimodal Earth Observation. *arXiv preprint arXiv:2511.13655*.
+[10] Herzog, H., et al. (2026). OlmoEarth v1.2: A More Efficient Family of OlmoEarth Models. *arXiv preprint arXiv:2605.20804*.
 
 [11] Cao, B., et al. (2026). TIPSv2: Advancing Vision-Language Pretraining with Enhanced Patch-Text Alignment. *arXiv preprint arXiv:2604.12012*.
 

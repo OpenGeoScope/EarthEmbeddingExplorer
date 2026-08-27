@@ -20,8 +20,9 @@ clay:
 
 olmoearth:
   ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
-  model_size: "base"  # nano | tiny | base | large
-  embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-Base/OlmoEarth_Base_crop_384x384.parquet"
+  model_version: "v1_2"
+  model_size: "base"  # nano | tiny | small | base
+  embedding_path: "ms://Major-TOM/Core-S2L2A-249k-OlmoEarth-v1_2-Base/OlmoEarth_v1_2_Base_crop_384x384.parquet"
 
 tipsv2:
   ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
