@@ -101,7 +101,7 @@ The retrieval engine is powered by six complementary embedding models. Think of 
 - **FarSLIP** is fine-tuned on remote-sensing captions, making it better at concepts like *"deforestation"* or *"salt evaporation ponds"*.
 - **SatCLIP** jointly encodes images and their geographic coordinates, enabling queries like *"show me places near (lat, lon)"*.
 - **DINOv2** learns powerful visual features without any text supervision; it excels at *"find me images that look like this one"*.
-- **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. It captures rich geospatial features across 10 Sentinel-2 bands, making it ideal for pure visual similarity search in the remote-sensing domain.
+- **Clay** is a foundation model trained on multi-spectral Earth observation data using a masked autoencoder. EarthEmbeddingExplorer conditions its 10-band Sentinel-2 embeddings on acquisition time and GeoTIFF footprint location when those metadata are available.
 - **OlmoEarth-v1_2** uses 12-band Sentinel-2 imagery and its real acquisition timestamp. Its 3D RoPE encoding captures spatial and calendar-time relationships for image-to-image retrieval.
 - **TIPSv2** enhances patch-text alignment via patch-level distillation and an upgraded masked-image objective, giving spatially rich features that stay aligned with open-vocabulary text queries.
 - **Qwen3-VL-Embedding** is a 2B multimodal embedding model built on Qwen3-VL. Besides text and image queries, it natively encodes text+image pairs jointly, which we use for the mixed search mode.
