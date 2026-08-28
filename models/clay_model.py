@@ -10,6 +10,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
+from clay_metadata import resolve_clay_metadata
+
 # Ensure vendored Clay source is on Python path so absolute imports inside
 # claymodel (e.g. `from claymodel.model import Encoder`) resolve correctly
 # in environments where `pip install ./models/Clay` has not been run.
@@ -70,6 +72,7 @@ class ClayModel:
         # Clay Sentinel-2 L2A bands (10 bands)
         self.bands = ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B11", "B12"]
         self.requires_multiband = True  # Model needs multi-spectral Sentinel-2 input
+        self.supports_spatiotemporal_metadata = True
         self.size = (384, 384)
 
         # Clay metadata for Sentinel-2 normalization
@@ -211,10 +214,8 @@ class ClayModel:
         batch_size = image_tensor.shape[0]
         device = image_tensor.device
 
-        if latlon is None:
-            latlon = torch.zeros(batch_size, 4, dtype=torch.float32, device=device)
-        if time is None:
-            time = torch.zeros(batch_size, 4, dtype=torch.float32, device=device)
+        latlon = self._prepare_metadata_tensor(latlon, batch_size, device, "latlon")
+        time = self._prepare_metadata_tensor(time, batch_size, device, "time")
 
         waves = self.clay_waves.to(device)
         gsd = self.clay_gsd.to(device)
@@ -227,7 +228,57 @@ class ClayModel:
             "gsd": gsd,
         }
 
-    def encode_image(self, image, preprocess_s2=True, normalize=True, latlon=None, time=None):
+    @staticmethod
+    def _prepare_metadata_tensor(value, batch_size, device, name):
+        """Convert a Clay metadata input to a float tensor and broadcast one row."""
+        if value is None:
+            return torch.zeros(batch_size, 4, dtype=torch.float32, device=device)
+        value = torch.as_tensor(value, dtype=torch.float32, device=device)
+        if value.ndim == 1:
+            value = value.unsqueeze(0)
+        if value.shape == (1, 4) and batch_size > 1:
+            value = value.expand(batch_size, -1)
+        if value.shape != (batch_size, 4):
+            raise ValueError(f"Expected {name} metadata shape ({batch_size}, 4), got {tuple(value.shape)}")
+        return value
+
+    @staticmethod
+    def _metadata_inputs(metadata, batch_size, device):
+        """Resolve raw or audited metadata dictionaries into Clay tensors."""
+        if metadata is None:
+            return None, None
+        if isinstance(metadata, dict):
+            metadata = [metadata]
+        else:
+            metadata = list(metadata)
+        if len(metadata) == 1 and batch_size > 1:
+            metadata *= batch_size
+        if len(metadata) != batch_size:
+            raise ValueError(f"Expected {batch_size} metadata records, got {len(metadata)}")
+
+        resolved = []
+        for item in metadata:
+            if "clay_time_input" in item and "clay_latlon_input" in item:
+                resolved.append(item)
+                continue
+            resolved.append(
+                resolve_clay_metadata(
+                    time_candidates=[(item.get("timestamp"), item.get("time_source", "provided_timestamp"))],
+                    latlon_candidates=[
+                        (item.get("latitude"), item.get("longitude"), item.get("latlon_source", "provided_latlon"))
+                    ],
+                )
+            )
+
+        time = torch.as_tensor(
+            np.stack([item["clay_time_input"] for item in resolved]), dtype=torch.float32, device=device
+        )
+        latlon = torch.as_tensor(
+            np.stack([item["clay_latlon_input"] for item in resolved]), dtype=torch.float32, device=device
+        )
+        return latlon, time
+
+    def encode_image(self, image, preprocess_s2=True, normalize=True, latlon=None, time=None, metadata=None):
         """
         Encode an image into a feature embedding using Clay encoder.
 
@@ -242,6 +293,8 @@ class ClayModel:
             normalize (bool): Unused for Clay tensor inputs, kept for API consistency.
             latlon (torch.Tensor, optional): [B, 4] lat/lon encoding.
             time (torch.Tensor, optional): [B, 4] time encoding.
+            metadata (dict or list[dict], optional): Raw or resolved time/location
+                metadata. Explicit ``latlon`` and ``time`` tensors take precedence.
 
         Returns:
             torch.Tensor: Normalized image embedding vector.
@@ -253,6 +306,9 @@ class ClayModel:
             if isinstance(image, torch.Tensor):
                 if image.dim() == 3:
                     image = image.unsqueeze(0)
+                metadata_latlon, metadata_time = self._metadata_inputs(metadata, image.shape[0], image.device)
+                latlon = latlon if latlon is not None else metadata_latlon
+                time = time if time is not None else metadata_time
                 # Resize to Clay's expected input size if needed
                 if image.shape[2:] != self.size:
                     image = F.interpolate(image.float(), size=self.size, mode="bicubic", align_corners=False)
@@ -271,6 +327,11 @@ class ClayModel:
                 if image.shape[-1] == len(self.bands):
                     image = image.transpose(0, 3, 1, 2)  # [N, C, H, W]
                 image_tensor = torch.from_numpy(image).to(self.device)
+                metadata_latlon, metadata_time = self._metadata_inputs(
+                    metadata, image_tensor.shape[0], image_tensor.device
+                )
+                latlon = latlon if latlon is not None else metadata_latlon
+                time = time if time is not None else metadata_time
                 # Resize to Clay's expected input size if needed
                 if image_tensor.shape[2:] != self.size:
                     image_tensor = F.interpolate(
@@ -295,6 +356,9 @@ class ClayModel:
                 input_tensor[1] = img_np[:, :, 1]  # Green -> B03
                 input_tensor[0] = img_np[:, :, 2]  # Blue -> B02
                 input_tensor = torch.from_numpy(input_tensor).unsqueeze(0).to(self.device)
+                metadata_latlon, metadata_time = self._metadata_inputs(metadata, 1, input_tensor.device)
+                latlon = latlon if latlon is not None else metadata_latlon
+                time = time if time is not None else metadata_time
                 if preprocess_s2:
                     input_tensor = self.preprocess_s2(input_tensor)
                 datacube = self._build_datacube(input_tensor, latlon=latlon, time=time)
@@ -314,7 +378,7 @@ class ClayModel:
             traceback.print_exc()
             return None
 
-    def __call__(self, input):
+    def __call__(self, input, timestamps=None, metadata=None):
         """
         Callable wrapper that delegates to forward().
 
@@ -324,9 +388,9 @@ class ClayModel:
         Returns:
             torch.Tensor: Normalized embedding vector.
         """
-        return self.forward(input)
+        return self.forward(input, timestamps=timestamps, metadata=metadata)
 
-    def forward(self, input):
+    def forward(self, input, timestamps=None, metadata=None):
         """
         Forward pass for compatibility with MajorTOM_Embedder.
 
@@ -342,7 +406,9 @@ class ClayModel:
             torch.Tensor: Normalized embedding vector with shape [N, embedding_dim]
                 or [embedding_dim].
         """
-        return self.encode_image(input, preprocess_s2=True, normalize=False)
+        if metadata is None and timestamps is not None:
+            metadata = [{"timestamp": timestamp} for timestamp in timestamps]
+        return self.encode_image(input, preprocess_s2=True, normalize=False, metadata=metadata)
 
     def search(self, query_features, top_k=5, top_percent=None, threshold=0.0):
         """

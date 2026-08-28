@@ -34,6 +34,8 @@ from fsspec.parquet import open_parquet_file
 from pyproj import CRS, Transformer
 from shapely.ops import transform as shapely_transform
 
+from clay_metadata import resolve_clay_metadata, wgs84_centroid
+
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -239,14 +241,37 @@ def _decode_single_fragment_row(row, row_meta, fragment_size, embedder):
     if row_meta is None or row_meta.empty:
         return None
 
-    img, footprint, crs = embedder._read_image(row)
+    img, footprint, crs, raster_metadata = embedder._read_image(row, return_metadata=True)
     h, w = img.shape[:2]
     if h <= fragment_size and w <= fragment_size:
+        centroid = wgs84_centroid(tuple(footprint.bounds), crs)
+        latlon_candidates = []
+        if centroid is not None:
+            latlon_candidates.append((*centroid, "tiff_bounds"))
+        latlon_candidates.append(
+            (
+                _first_value(row_meta, "centre_lat") if "centre_lat" in row_meta.columns else None,
+                _first_value(row_meta, "centre_lon") if "centre_lon" in row_meta.columns else None,
+                "embedding_center",
+            )
+        )
+        product_datetime = row["product_datetime"][0].as_py() if "product_datetime" in row.column_names else None
+        clay_metadata = None
+        if getattr(embedder.embedder, "supports_spatiotemporal_metadata", False):
+            clay_metadata = resolve_clay_metadata(
+                time_candidates=[
+                    ((raster_metadata or {}).get("tiff_timestamp"), "tiff_tag"),
+                    (product_datetime, "parquet_product_datetime"),
+                    (_first_value(row_meta, "timestamp"), "embedding_timestamp"),
+                ],
+                latlon_candidates=latlon_candidates,
+            )
         return {
             "image": _prepare_single_fragment_image(img, fragment_size),
             "row_meta": row_meta,
             "footprint": footprint,
             "crs": crs,
+            "clay_metadata": clay_metadata,
         }
     return ("large", row, row_meta, img, footprint, crs)
 
@@ -273,25 +298,33 @@ def _build_single_fragment_rows(batch_items, embeddings, fragment_size):
         combined = f"{geometry}_{timestamp}_{product_id}_{embedding}"
         unique_id = hashlib.sha256(combined.encode()).hexdigest()
 
-        rows.append(
-            {
-                "unique_id": unique_id,
-                "embedding": embedding,
-                "timestamp": timestamp,
-                "product_id": product_id,
-                "grid_cell": _first_value(row_meta, "grid_cell"),
-                "grid_row_u": _first_value(row_meta, "grid_row_u"),
-                "grid_col_r": _first_value(row_meta, "grid_col_r"),
-                "geometry": geometry,
-                "centre_lat": centre_lat,
-                "centre_lon": centre_lon,
-                "utm_footprint": item["footprint"].wkt,
-                "utm_crs": item["crs"].to_string(),
-                "pixel_bbox": [0, 0, fragment_size, fragment_size],
-                "parquet_row": _first_value(row_meta, "parquet_row") if "parquet_row" in row_meta.columns else None,
-                "parquet_url": _first_value(row_meta, "parquet_url") if "parquet_url" in row_meta.columns else None,
-            }
-        )
+        row_dict = {
+            "unique_id": unique_id,
+            "embedding": embedding,
+            "timestamp": timestamp,
+            "product_id": product_id,
+            "grid_cell": _first_value(row_meta, "grid_cell"),
+            "grid_row_u": _first_value(row_meta, "grid_row_u"),
+            "grid_col_r": _first_value(row_meta, "grid_col_r"),
+            "geometry": geometry,
+            "centre_lat": centre_lat,
+            "centre_lon": centre_lon,
+            "utm_footprint": item["footprint"].wkt,
+            "utm_crs": item["crs"].to_string(),
+            "pixel_bbox": [0, 0, fragment_size, fragment_size],
+            "parquet_row": _first_value(row_meta, "parquet_row") if "parquet_row" in row_meta.columns else None,
+            "parquet_url": _first_value(row_meta, "parquet_url") if "parquet_url" in row_meta.columns else None,
+        }
+        if item["clay_metadata"] is not None:
+            row_dict.update(
+                {
+                    "clay_time_input": item["clay_metadata"]["clay_time_input"],
+                    "clay_latlon_input": item["clay_metadata"]["clay_latlon_input"],
+                    "clay_time_input_source": item["clay_metadata"]["clay_time_input_source"],
+                    "clay_latlon_input_source": item["clay_metadata"]["clay_latlon_input_source"],
+                }
+            )
+        rows.append(row_dict)
 
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326").astype(column_types)
 
@@ -303,8 +336,11 @@ def _flush_single_fragment_batch(embedder, batch_items, device, fragment_size):
 
     image_batch = torch.stack([item["image"] for item in batch_items], dim=0).to(device, non_blocking=True)
     timestamps = [_first_value(item["row_meta"], "timestamp") for item in batch_items]
+    metadata = [item["clay_metadata"] for item in batch_items]
+    if not any(item is not None for item in metadata):
+        metadata = None
     with torch.no_grad():
-        embeddings = embedder._encode_images(image_batch, timestamps=timestamps)
+        embeddings = embedder._encode_images(image_batch, timestamps=timestamps, metadata=metadata)
     return _build_single_fragment_rows(batch_items, embeddings, fragment_size)
 
 
@@ -380,6 +416,8 @@ def generate_embeddings(
 
         bands = embedder.bands()
         columns = [*bands, "product_id", "grid_cell"]
+        if getattr(model, "supports_spatiotemporal_metadata", False):
+            columns.append("product_datetime")
 
         # Open parquet file
         f = None
@@ -427,15 +465,41 @@ def generate_embeddings(
                 row_meta = _rewrite_row_meta_parquet_location(row_meta, pf_path, row_idx)
 
                 if use_single_fragment:
-                    img, footprint, crs = embedder._read_image(row)
+                    img, footprint, crs, raster_metadata = embedder._read_image(row, return_metadata=True)
                     h, w = img.shape[:2]
                     if h <= fragment_size and w <= fragment_size:
+                        centroid = wgs84_centroid(tuple(footprint.bounds), crs)
+                        latlon_candidates = []
+                        if centroid is not None:
+                            latlon_candidates.append((*centroid, "tiff_bounds"))
+                        latlon_candidates.append(
+                            (
+                                _first_value(row_meta, "centre_lat") if "centre_lat" in row_meta.columns else None,
+                                _first_value(row_meta, "centre_lon") if "centre_lon" in row_meta.columns else None,
+                                "embedding_center",
+                            )
+                        )
+                        product_datetime = (
+                            row["product_datetime"][0].as_py() if "product_datetime" in row.column_names else None
+                        )
                         batch_items.append(
                             {
                                 "image": _prepare_single_fragment_image(img, fragment_size),
                                 "row_meta": row_meta,
                                 "footprint": footprint,
                                 "crs": crs,
+                                "clay_metadata": (
+                                    resolve_clay_metadata(
+                                        time_candidates=[
+                                            ((raster_metadata or {}).get("tiff_timestamp"), "tiff_tag"),
+                                            (product_datetime, "parquet_product_datetime"),
+                                            (_first_value(row_meta, "timestamp"), "embedding_timestamp"),
+                                        ],
+                                        latlon_candidates=latlon_candidates,
+                                    )
+                                    if getattr(model, "supports_spatiotemporal_metadata", False)
+                                    else None
+                                ),
                             }
                         )
                         if len(batch_items) >= batch_size:

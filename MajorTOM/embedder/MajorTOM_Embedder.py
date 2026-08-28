@@ -7,6 +7,9 @@ from .grid_cell_fragment import *
 from .models import *
 import cv2
 
+from clay_metadata import resolve_clay_metadata
+from clay_metadata import timestamp_from_tiff_tags
+
 class MajorTOM_Embedder(torch.nn.Module):
     """
     MajorTOM Embedder class that applies a model to geospatial image fragments, 
@@ -96,7 +99,7 @@ class MajorTOM_Embedder(torch.nn.Module):
         checksum = hashlib.sha256(combined.encode()).hexdigest()
         return checksum
 
-    def _read_image(self, row):
+    def _read_image(self, row, return_metadata=False):
         """
         Reads and processes the image bands for a given row, performs optional upsampling 
         if the resolution is mismatched, and returns the image data, footprint, and CRS.
@@ -112,11 +115,18 @@ class MajorTOM_Embedder(torch.nn.Module):
 
         # Read the file
         img = []
+        raster_metadata = None
         for band in self.embedder.bands:
             with MemoryFile(row[band][0].as_py()) as mem_f:
                 with mem_f.open(driver='GTiff') as f:
                     crs = f.crs
                     footprint = box(*f.bounds)
+                    if raster_metadata is None:
+                        tags = f.tags()
+                        raster_metadata = {
+                            'tags': tags,
+                            'tiff_timestamp': timestamp_from_tiff_tags(tags),
+                        }
                     img.append(f.read()[0])
 
         # optional upsampling
@@ -128,13 +138,46 @@ class MajorTOM_Embedder(torch.nn.Module):
                     img[layer_idx] = cv2.resize(layer, (h,w), interpolation=cv2.INTER_NEAREST)
         img = torch.from_numpy(np.stack(img,-1).astype(np.float32))
 
+        if return_metadata:
+            return img, footprint, crs, raster_metadata
         return img, footprint, crs
 
-    def _encode_images(self, images, timestamps=None):
-        """Encode images, forwarding timestamps only to temporal embedders."""
+    def _encode_images(self, images, timestamps=None, metadata=None):
+        """Encode images, forwarding only metadata supported by the model."""
+        if getattr(self.embedder, "supports_spatiotemporal_metadata", False):
+            return self.embedder(images, metadata=metadata)
         if getattr(self.embedder, "supports_timestamps", False):
             return self.embedder(images, timestamps=timestamps)
         return self.embedder(images)
+
+    @staticmethod
+    def _row_value(row, column):
+        if column not in row.column_names:
+            return None
+        return row[column][0].as_py()
+
+    def _clay_metadata(self, row, row_meta, raster_metadata, centre_lat, centre_lon):
+        if not getattr(self.embedder, "supports_spatiotemporal_metadata", False):
+            return None
+        return resolve_clay_metadata(
+            time_candidates=[
+                ((raster_metadata or {}).get('tiff_timestamp'), 'tiff_tag'),
+                (self._row_value(row, 'product_datetime'), 'parquet_product_datetime'),
+                (row_meta.timestamp.item(), 'embedding_timestamp'),
+            ],
+            latlon_candidates=[(centre_lat, centre_lon, 'tiff_bounds')],
+        )
+
+    @staticmethod
+    def _metadata_audit_fields(metadata):
+        if metadata is None:
+            return {}
+        return {
+            'clay_time_input': metadata['clay_time_input'],
+            'clay_latlon_input': metadata['clay_latlon_input'],
+            'clay_time_input_source': metadata['clay_time_input_source'],
+            'clay_latlon_input_source': metadata['clay_latlon_input_source'],
+        }
         
 
     def forward(self, row, row_meta, device='cuda'):
@@ -152,18 +195,35 @@ class MajorTOM_Embedder(torch.nn.Module):
             geopandas.GeoDataFrame: A GeoDataFrame containing metadata and embeddings for each fragment.
         """
         # Read file
-        img, footprint, crs = self._read_image(row)
+        img, footprint, crs, raster_metadata = self._read_image(row, return_metadata=True)
 
         # Fragment the sample
         fragments, xys = fragment_fn(img, **self.frag_params, return_indices=True, verbose=False)
 
         nrows, ncols, c, h, w = fragments.shape
+        transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
+        fragment_contexts = []
+        clay_metadata = []
+        for r_idx in range(nrows):
+            for c_idx in range(ncols):
+                x_offset, y_offset = xys[r_idx, c_idx].int().tolist()
+                pixel_bbox = [x_offset, y_offset, x_offset + h, y_offset + w]
+                utm_footprint = crop_footprint(footprint, *img.shape[:2], pixel_bbox)
+                geometry = transform(transformer.transform, utm_footprint)
+                centre_lon, centre_lat = geometry.centroid.coords[0]
+                fragment_contexts.append((pixel_bbox, utm_footprint, geometry, centre_lat, centre_lon))
+                metadata = self._clay_metadata(row, row_meta, raster_metadata, centre_lat, centre_lon)
+                if metadata is not None:
+                    clay_metadata.append(metadata)
+
         # Apply the model
         timestamp = row_meta.timestamp.item()
         timestamps = [timestamp] * (nrows * ncols)
         with torch.no_grad():
             embeddings = self._encode_images(
-                fragments.reshape(-1,c,h,w).to(device), timestamps=timestamps
+                fragments.reshape(-1,c,h,w).to(device),
+                timestamps=timestamps,
+                metadata=clay_metadata or None,
             ).view(nrows, ncols, -1)
 
         df_rows = []
@@ -172,14 +232,8 @@ class MajorTOM_Embedder(torch.nn.Module):
         for r_idx in range(nrows):
             for c_idx in range(ncols):
                 embedding = embeddings[r_idx, c_idx].cpu().numpy()
-                # spatial features per fragment
-                x_offset,y_offset=xys[r_idx,c_idx].int().tolist()
-                pixel_bbox = [x_offset, y_offset, x_offset + h,y_offset + w] # in pixels
-                utm_footprint = crop_footprint(footprint, *img.shape[:2], pixel_bbox)
-                # main footprint is in WGS84 (needs to be consistent across parquet)
-                transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
-                geometry = transform(transformer.transform, utm_footprint) # WGS84
-                centre_lon, centre_lat = geometry.centroid.coords[0]
+                flat_index = r_idx * ncols + c_idx
+                pixel_bbox, utm_footprint, geometry, centre_lat, centre_lon = fragment_contexts[flat_index]
                 
                 row_dict = {
                     'unique_id' : self.calculate_checksum(geometry, row_meta.timestamp.item(), row_meta.product_id.item(), embedding),
@@ -198,6 +252,8 @@ class MajorTOM_Embedder(torch.nn.Module):
                     'parquet_row' : row_meta.parquet_row.item() if 'parquet_row' in row_meta.columns else None,
                     'parquet_url' : row_meta.parquet_url.item() if 'parquet_url' in row_meta.columns else None,
                 }
+                if clay_metadata:
+                    row_dict.update(self._metadata_audit_fields(clay_metadata[flat_index]))
                 df_rows.append(row_dict)
 
         return gpd.GeoDataFrame(df_rows, geometry='geometry', crs='EPSG:4326').astype(self.column_types)
@@ -217,14 +273,30 @@ class MajorTOM_Embedder(torch.nn.Module):
         contexts = []
         fragment_batches = []
         batch_timestamps = []
+        batch_metadata = []
 
         for row, row_meta in rows_and_meta:
-            img, footprint, crs = self._read_image(row)
+            img, footprint, crs, raster_metadata = self._read_image(row, return_metadata=True)
             fragments, xys = fragment_fn(img, **self.frag_params, return_indices=True, verbose=False)
 
             nrows, ncols, c, h, w = fragments.shape
             fragment_batches.append(fragments.reshape(-1, c, h, w))
             batch_timestamps.extend([row_meta.timestamp.item()] * (nrows * ncols))
+            transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
+            fragment_contexts = []
+            sample_metadata = []
+            for r_idx in range(nrows):
+                for c_idx in range(ncols):
+                    x_offset, y_offset = xys[r_idx, c_idx].int().tolist()
+                    pixel_bbox = [x_offset, y_offset, x_offset + h, y_offset + w]
+                    utm_footprint = crop_footprint(footprint, *img.shape[:2], pixel_bbox)
+                    geometry = transform(transformer.transform, utm_footprint)
+                    centre_lon, centre_lat = geometry.centroid.coords[0]
+                    fragment_contexts.append((pixel_bbox, utm_footprint, geometry, centre_lat, centre_lon))
+                    metadata = self._clay_metadata(row, row_meta, raster_metadata, centre_lat, centre_lon)
+                    if metadata is not None:
+                        sample_metadata.append(metadata)
+            batch_metadata.extend(sample_metadata)
             contexts.append({
                 'img_shape': img.shape,
                 'footprint': footprint,
@@ -236,6 +308,8 @@ class MajorTOM_Embedder(torch.nn.Module):
                 'h': h,
                 'w': w,
                 'count': nrows * ncols,
+                'fragment_contexts': fragment_contexts,
+                'clay_metadata': sample_metadata,
             })
 
         if not fragment_batches:
@@ -243,7 +317,9 @@ class MajorTOM_Embedder(torch.nn.Module):
 
         fragments_batch = torch.cat(fragment_batches, dim=0).to(device)
         with torch.no_grad():
-            embeddings = self._encode_images(fragments_batch, timestamps=batch_timestamps).detach().cpu()
+            embeddings = self._encode_images(
+                fragments_batch, timestamps=batch_timestamps, metadata=batch_metadata or None
+            ).detach().cpu()
 
         df_rows = []
         offset = 0
@@ -258,20 +334,16 @@ class MajorTOM_Embedder(torch.nn.Module):
             xys = context['xys']
             footprint = context['footprint']
             crs = context['crs']
-            img_shape = context['img_shape']
+            fragment_contexts = context['fragment_contexts']
+            clay_metadata = context['clay_metadata']
             sample_embeddings = embeddings[offset:offset + count].view(nrows, ncols, -1)
             offset += count
-
-            transformer = Transformer.from_crs(crs, CRS.from_epsg(4326), always_xy=True)
 
             for r_idx in range(nrows):
                 for c_idx in range(ncols):
                     embedding = sample_embeddings[r_idx, c_idx].numpy()
-                    x_offset, y_offset = xys[r_idx, c_idx].int().tolist()
-                    pixel_bbox = [x_offset, y_offset, x_offset + h, y_offset + w]
-                    utm_footprint = crop_footprint(footprint, *img_shape[:2], pixel_bbox)
-                    geometry = transform(transformer.transform, utm_footprint)
-                    centre_lon, centre_lat = geometry.centroid.coords[0]
+                    flat_index = r_idx * ncols + c_idx
+                    pixel_bbox, utm_footprint, geometry, centre_lat, centre_lon = fragment_contexts[flat_index]
 
                     row_dict = {
                         'unique_id': self.calculate_checksum(
@@ -292,6 +364,8 @@ class MajorTOM_Embedder(torch.nn.Module):
                         'parquet_row': row_meta.parquet_row.item() if 'parquet_row' in row_meta.columns else None,
                         'parquet_url': row_meta.parquet_url.item() if 'parquet_url' in row_meta.columns else None,
                     }
+                    if clay_metadata:
+                        row_dict.update(self._metadata_audit_fields(clay_metadata[flat_index]))
                     df_rows.append(row_dict)
 
         return gpd.GeoDataFrame(df_rows, geometry='geometry', crs='EPSG:4326').astype(self.column_types)
