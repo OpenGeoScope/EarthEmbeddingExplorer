@@ -1,6 +1,7 @@
 """Tests for Clay v1.5 spatiotemporal metadata handling."""
 
 from io import BytesIO
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ from clay_metadata import (
 )
 from data_utils import MULTIBAND_COLUMNS, download_and_process_image
 from models.clay_model import ClayModel
+from ui.callbacks import download_image_by_location
 
 
 def test_clay_time_encoding_matches_official_formula():
@@ -142,3 +144,76 @@ def test_clay_build_datacube_uses_metadata_instead_of_zeros():
     datacube = model._build_datacube(image, latlon=latlon, time=time)
     assert torch.count_nonzero(datacube["time"]) > 0
     assert torch.count_nonzero(datacube["latlon"]) > 0
+
+
+def test_download_callback_stores_clay_metadata_and_reports_status(monkeypatch):
+    source = pd.DataFrame(
+        {
+            "product_id": ["sample"],
+            "timestamp": ["20221115T161819"],
+            "centre_lat": [10.0],
+            "centre_lon": [20.0],
+        }
+    )
+    model = SimpleNamespace(
+        df_embed=source,
+        requires_multiband=True,
+        supports_spatiotemporal_metadata=True,
+    )
+    bands = np.zeros((4, 4, 12), dtype=np.uint16)
+    metadata = resolve_clay_metadata(
+        time_candidates=[("20221115T161819", "parquet_product_datetime")],
+        latlon_candidates=[(10, 20, "tiff_bounds")],
+    )
+    monkeypatch.setattr(
+        "ui.callbacks.download_and_process_image",
+        lambda *args, **kwargs: (Image.new("RGB", (4, 4)), None, bands, metadata),
+    )
+
+    _image, status, returned_bands, returned_metadata = download_image_by_location(
+        10,
+        20,
+        "sample",
+        "Clay-v1_5",
+        {"Clay-v1_5": model},
+    )
+
+    assert returned_bands is bands
+    assert returned_metadata["clay_time_input_source"] == "parquet_product_datetime"
+    assert returned_metadata["clay_latlon_input_source"] == "tiff_bounds"
+    assert "Clay metadata input: time + latitude/longitude" in status
+
+
+def test_search_image_forwards_clay_metadata():
+    from core.search_engine import search_image
+
+    class Model:
+        requires_multiband = True
+        supports_spatiotemporal_metadata = True
+        bands = MULTIBAND_COLUMNS
+
+        def encode_image(self, image, metadata=None):
+            self.received_metadata = metadata
+            return torch.ones(1, 2)
+
+        def search(self, _features, top_percent=None):
+            return np.asarray([1.0]), np.asarray([0]), np.asarray([0])
+
+    model = Model()
+    model_manager = SimpleNamespace(get_model=lambda _name: (model, None))
+    metadata = resolve_clay_metadata(
+        time_candidates=[("20221115T161819", "parquet_product_datetime")],
+        latlon_candidates=[(10, 20, "tiff_bounds")],
+    )
+    generator = search_image(
+        model_manager,
+        Image.new("RGB", (4, 4)),
+        10,
+        "Clay-v1_5",
+        multiband_data=np.zeros((4, 4, 12), dtype=np.uint16),
+        image_metadata=metadata,
+    )
+
+    next(generator)
+    next(generator)
+    assert model.received_metadata is metadata

@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from PIL import Image as PILImage
 
+from clay_metadata import clay_metadata_status
 from data_utils import download_and_process_image, get_placeholder_image, reorder_multiband
 from visualize import format_results_for_gallery, plot_geographic_distribution, plot_top5_overview
 
@@ -271,6 +272,7 @@ def search_image(
 
     try:
         timings = {}
+        metadata_status_line = ""
 
         # 1. Encode Image
         # For multi-spectral models: require multiband data
@@ -286,7 +288,10 @@ def search_image(
                 # this model expects (no-op if model.bands == MULTIBAND_COLUMNS).
                 multiband_data = reorder_multiband(multiband_data, model.bands)
                 print(f"{model_name}: reordered to bands {model.bands} -> shape {multiband_data.shape}")
-                if getattr(model, "supports_timestamps", False):
+                if getattr(model, "supports_spatiotemporal_metadata", False):
+                    image_features = model.encode_image(multiband_data, metadata=image_metadata)
+                    metadata_status_line = clay_metadata_status(image_metadata)
+                elif getattr(model, "supports_timestamps", False):
                     timestamp = image_metadata.get("timestamp") if image_metadata else None
                     image_features = model.encode_image(multiband_data, timestamp=timestamp)
                 else:
@@ -369,8 +374,10 @@ def search_image(
 
         # Handle 0 results after filtering
         if len(top_indices) == 0:
+            metadata_prefix = f"{metadata_status_line}\n\n" if metadata_status_line else ""
             status_msg = _append_warnings(
-                "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
+                metadata_prefix
+                + "No results found with current filter settings.\nTry relaxing the filters or adjusting the threshold.",
                 extra_warnings,
             )
             yield (
@@ -413,8 +420,10 @@ def search_image(
 
         # 5. Generate Final Status
         timing_str = f"Encoding {timings['Encoding']:.1f}s, Retrieval {timings['Retrieval']:.1f}s, Download {timings['Download']:.1f}s, Visualization {timings['Visualization']:.1f}s\n\n"
+        metadata_prefix = f"{metadata_status_line}\n\n" if metadata_status_line else ""
         status_msg = _append_warnings(
-            timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results), extra_warnings
+            metadata_prefix + timing_str + _generate_status_msg(len(filtered_indices), threshold / 100.0, results),
+            extra_warnings,
         )
 
         all_results = _get_all_results_metadata(model, filtered_indices, probs)
