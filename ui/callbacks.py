@@ -15,7 +15,7 @@ from visualize import plot_global_map_static
 _GLOBAL_MAP_CACHE = {}
 
 
-def _get_global_map(models):
+def get_global_map(models):
     """Return cached (img, df_vis) for the global sample map."""
     first_model_name = next(iter(models), None)
     if first_model_name is None or models[first_model_name].df_embed is None:
@@ -82,7 +82,7 @@ def get_initial_plot(models):
         print("Warning: models is None in get_initial_plot")
         return gr.update(visible=True), [], None
 
-    img, df_vis = _get_global_map(models)
+    img, df_vis = get_global_map(models)
     if img is None:
         print("No embedding data available for initial plot.")
 
@@ -239,7 +239,7 @@ def reset_to_global_map(models):
         print("Warning: models is None in reset_to_global_map")
         return gr.update(visible=True), [], None
 
-    img, df_vis = _get_global_map(models)
+    img, df_vis = get_global_map(models)
     if img is None:
         print("No embedding data available for initial plot.")
 

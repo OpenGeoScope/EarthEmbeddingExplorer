@@ -23,7 +23,7 @@ from core.search_engine import (
 )
 from ui.callbacks import (
     download_image_by_location,
-    get_initial_plot,
+    get_global_map,
     handle_map_click,
     reset_to_global_map,
 )
@@ -66,10 +66,11 @@ models = model_manager.models  # Keep for backward compatibility with existing c
 print(f"Loaded models: {', '.join(model_manager.get_available_models()) or 'none'}")
 
 # Warm up at startup: load NaturalEarth geometries and pre-render the global
-# map once, so the first page load / first search doesn't stall on them.
+# map once. The resulting image is assigned directly to the Gradio component
+# below so the first page load does not need a queued backend callback.
 print("Warming up map data (NaturalEarth geometries + initial global map)...")
 warm_up_map_data()
-get_initial_plot(models)
+initial_map, initial_map_data = get_global_map(models)
 print("Warm-up done.")
 
 TEXT_MODELS = _ordered_available_models(["SigLIP", "FarSLIP", "TIPSv2", "Qwen3VL"])
@@ -100,10 +101,6 @@ else:
 
 
 # Wrapper functions for UI callbacks (pass models dict to extracted functions)
-def _get_initial_plot():
-    return get_initial_plot(models)
-
-
 def _reset_to_global_map():
     return reset_to_global_map(models)
 
@@ -418,11 +415,21 @@ div.form:has(.filter-checkbox) {
 
         with gr.Column(scale=6):
             plot_map = gr.Image(
-                label="Geographical Distribution", type="pil", interactive=False, height=400, width=800, visible=True
+                value=initial_map,
+                label="Geographical Distribution",
+                type="pil",
+                format="webp",
+                interactive=False,
+                height=400,
+                width=800,
+                visible=True,
             )
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
+    # Keep large global objects out of State defaults: Gradio deep-copies
+    # default state on first access in every session. Empty state falls back
+    # to the shared read-only objects in the handlers below.
     current_fig = gr.State()
     map_data_state = gr.State()
     multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral encoding
@@ -446,9 +453,6 @@ div.form:has(.filter-checkbox) {
         outputs=[multiband_state, image_metadata_state],
     )
 
-    # Initial Load
-    demo.load(fn=_get_initial_plot, outputs=[plot_map, current_fig, map_data_state])
-
     # Reset Map Buttons
     btn_reset_map_img.click(fn=_reset_to_global_map, outputs=[plot_map, current_fig, map_data_state])
 
@@ -459,7 +463,7 @@ div.form:has(.filter-checkbox) {
     # Map Click Event - updates Image Search coordinates
     def _map_click_handler(evt: gr.SelectData, state_data):
         """Wrapper for map click that passes map_data_state."""
-        return _handle_map_click(evt, state_data)
+        return _handle_map_click(evt, state_data if state_data is not None else initial_map_data)
 
     plot_map.select(
         fn=_map_click_handler, inputs=[map_data_state], outputs=[img_lat, img_lon, img_pid, img_click_status]
@@ -688,7 +692,10 @@ div.form:has(.filter-checkbox) {
     # Save Event — download_mode controls the image format in the exported zip
     # Save/Download Results
     def _save_results(current_fig, download_mode):
-        return save_plot(current_fig, models, download_mode)
+        figures = current_fig
+        if figures is None and initial_map is not None:
+            figures = [initial_map]
+        return save_plot(figures, models, download_mode)
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
 
