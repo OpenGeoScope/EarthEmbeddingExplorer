@@ -3,7 +3,12 @@
 import pandas as pd
 from PIL import Image
 
-from visualize import _OVERVIEW_TITLE_FONTSIZE, _build_top5_figure, _result_overview_title
+from visualize import (
+    _OVERVIEW_COLUMN_SPACING,
+    _OVERVIEW_TITLE_FONTSIZE,
+    _build_top5_figure,
+    _result_overview_title,
+)
 
 
 def _result(rank, timestamp="20221115T161819"):
@@ -38,6 +43,8 @@ def test_text_search_overview_has_only_one_axis_per_result():
     assert all(axis.get_subplotspec().rowspan.start == 0 for axis in fig.axes)
     assert all(axis.title.get_fontsize() == _OVERVIEW_TITLE_FONTSIZE for axis in fig.axes)
     assert all("Original" not in axis.get_title() for axis in fig.axes)
+    assert fig.subplotpars.wspace == _OVERVIEW_COLUMN_SPACING
+    assert fig.subplotpars.wspace > 0
 
 
 def test_image_or_location_overview_adds_query_to_same_row():

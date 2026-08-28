@@ -205,7 +205,10 @@ def format_results_for_gallery(results):
     return gallery_items
 
 
-_OVERVIEW_TITLE_FONTSIZE = 12
+_OVERVIEW_TITLE_FONTSIZE = 13
+_OVERVIEW_COLUMN_WIDTH = 4.25
+_OVERVIEW_FIGURE_HEIGHT = 4.65
+_OVERVIEW_COLUMN_SPACING = 0.04
 
 
 def _format_acquisition_time(value):
@@ -240,7 +243,7 @@ def _build_top5_figure(query_image, results, query_info="Query"):
     has_query_image = query_image is not None
     cols = top_k + (1 if has_query_image else 0)
 
-    fig = Figure(figsize=(4.5 * cols, 4))
+    fig = Figure(figsize=(_OVERVIEW_COLUMN_WIDTH * cols, _OVERVIEW_FIGURE_HEIGHT))
     _canvas = FigureCanvasAgg(fig)
 
     if has_query_image:
@@ -267,7 +270,7 @@ def _build_top5_figure(query_image, results, query_info="Query"):
             ax1.text(0.5, 0.5, "N/A", ha="center", va="center")
         ax1.axis("off")
 
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.88, wspace=_OVERVIEW_COLUMN_SPACING)
     return fig
 
 
@@ -278,7 +281,7 @@ def plot_top5_overview(query_image, results, query_info="Query"):
         return None
 
     buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
+    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.03)
     buf.seek(0)
 
     return Image.open(buf)
