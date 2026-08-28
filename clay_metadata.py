@@ -7,6 +7,7 @@ from datetime import date, datetime
 
 import numpy as np
 from pyproj import CRS, Transformer
+from pyproj.exceptions import CRSError, ProjError
 
 MISSING_SOURCE = "missing_zero_fallback"
 
@@ -111,7 +112,7 @@ def wgs84_centroid(bounds, crs):
         y = (float(bottom) + float(top)) / 2
         transformer = Transformer.from_crs(CRS.from_user_input(crs), CRS.from_epsg(4326), always_xy=True)
         lon, lat = transformer.transform(x, y)
-    except (TypeError, ValueError):
+    except (CRSError, ProjError, TypeError, ValueError):
         return None
     if encode_clay_latlon(lat, lon) is None:
         return None
@@ -166,6 +167,11 @@ def resolve_clay_metadata(time_candidates=(), latlon_candidates=()):
 
 def clay_metadata_status(metadata):
     """Build a concise user-facing status line for resolved Clay metadata."""
+    if metadata and "clay_missing_metadata" not in metadata:
+        metadata = resolve_clay_metadata(
+            time_candidates=[(metadata.get("timestamp"), "provided_timestamp")],
+            latlon_candidates=[(metadata.get("latitude"), metadata.get("longitude"), "provided_latlon")],
+        )
     missing = metadata.get("clay_missing_metadata", []) if metadata else ["time", "latitude", "longitude"]
     if not missing:
         return "Clay metadata input: time + latitude/longitude."

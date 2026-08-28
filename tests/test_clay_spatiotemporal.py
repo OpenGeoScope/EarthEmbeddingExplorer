@@ -54,11 +54,18 @@ def test_metadata_precedence_and_zero_fallback():
     assert missing["clay_latlon_input_source"] == MISSING_SOURCE
     np.testing.assert_array_equal(missing["clay_time_input"], np.zeros(4, dtype=np.float32))
     assert "time" in clay_metadata_status(missing)
+    assert "latitude, longitude" in clay_metadata_status({"timestamp": "20221115T161819"})
 
 
 def test_tiff_datetime_tag_parsing():
     assert timestamp_from_tiff_tags({"TIFFTAG_DATETIME": "2022:11:15 16:18:19"}) == "2022:11:15 16:18:19"
     assert timestamp_from_tiff_tags({"unrelated": "value"}) is None
+
+
+def test_invalid_tiff_crs_falls_back_instead_of_raising():
+    from clay_metadata import wgs84_centroid
+
+    assert wgs84_centroid((0, 0, 1, 1), "not-a-crs") is None
 
 
 def test_clay_metadata_batch_broadcasts_and_validates_shape():
