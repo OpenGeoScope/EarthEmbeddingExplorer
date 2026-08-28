@@ -131,6 +131,31 @@ def test_multiband_download_returns_real_tiff_location_and_parquet_time(tmp_path
     assert metadata["longitude"] != -50.0
 
 
+def test_multiband_download_rejects_mismatched_source_row(tmp_path):
+    columns = {
+        "product_id": ["different-product"],
+        "product_datetime": ["20221115T161819"],
+        "thumbnail": [_thumbnail_bytes()],
+    }
+    columns.update({band: [_tiff_bytes()] for band in MULTIBAND_COLUMNS})
+    parquet_path = tmp_path / "part_00001.parquet"
+    pq.write_table(pa.table(columns), parquet_path, row_group_size=1)
+    source = pd.DataFrame(
+        {
+            "product_id": ["requested-product"],
+            "parquet_url": [str(parquet_path)],
+            "parquet_row": [0],
+        }
+    )
+
+    _preview, _full, bands, metadata = download_and_process_image(
+        "requested-product", df_source=source, verbose=False, mode="multiband", return_metadata=True
+    )
+
+    assert bands is None
+    assert metadata is None
+
+
 def test_clay_build_datacube_uses_metadata_instead_of_zeros():
     model = object.__new__(ClayModel)
     model.clay_waves = torch.ones(10)

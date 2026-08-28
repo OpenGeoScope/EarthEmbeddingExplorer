@@ -337,8 +337,13 @@ def download_and_process_image(
 
         # ---- multiband mode ----
         elif mode == "multiband":
-            columns_to_read = ["thumbnail", "product_datetime", *MULTIBAND_COLUMNS]
+            columns_to_read = ["product_id", "thumbnail", "product_datetime", *MULTIBAND_COLUMNS]
             data = read_row_memory(row_dict, columns=columns_to_read, include_raster_metadata=return_metadata)
+            downloaded_product_id = data.get("product_id")
+            if downloaded_product_id is not None and downloaded_product_id != product_id:
+                raise ValueError(
+                    f"Source row product mismatch: requested {product_id}, downloaded {downloaded_product_id}"
+                )
 
             # Preview from thumbnail (fallback to RGB composite)
             if "thumbnail" in data and data["thumbnail"] is not None:
