@@ -205,72 +205,78 @@ def format_results_for_gallery(results):
     return gallery_items
 
 
-def plot_top5_overview(query_image, results, query_info="Query"):
-    """
-    Generates a matplotlib figure showing the query image and top retrieved images.
-    Similar to the visualization in SigLIP_embdding.ipynb.
-    Uses OO Matplotlib API for thread safety.
-    """
+_OVERVIEW_TITLE_FONTSIZE = 12
+
+
+def _format_acquisition_time(value):
+    """Format a result timestamp compactly for the overview title."""
+    if value is None:
+        return "N/A"
+
+    try:
+        timestamp = pd.to_datetime(value, errors="coerce")
+        if pd.isna(timestamp):
+            return "N/A"
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return "N/A"
+
+
+def _result_overview_title(rank, result):
+    """Build the two-line title shown above a retrieved image."""
+    acquired = _format_acquisition_time(result.get("timestamp"))
+    return (
+        f"Rank {rank}, Score: {result['score']:.4f}\n"
+        f"{acquired} | ({result['lat']:.2f}, {result['lon']:.2f})"
+    )
+
+
+def _build_top5_figure(query_image, results, query_info="Query"):
+    """Build the single-row result figure without serializing it."""
     top_k = len(results)
     if top_k == 0:
         return None
 
-    # Default behavior (for Image Search or other counts)
-    # Layout:
-    # If query_image exists:
-    #   Row 1: Query Image (Left), Top-K 384x384 (Right)
-    #   Row 2: Empty (Left), Top-K Original (Right)
+    has_query_image = query_image is not None
+    cols = top_k + (1 if has_query_image else 0)
 
-    cols = top_k + (1 if query_image else 0)
-    rows = 2
-
-    fig = Figure(figsize=(4 * cols, 8))
+    fig = Figure(figsize=(4.5 * cols, 4))
     _canvas = FigureCanvasAgg(fig)
 
-    # Plot Query Image
-    if query_image:
-        # Row 1, Col 1
-        ax = fig.add_subplot(rows, cols, 1)
+    if has_query_image:
+        ax = fig.add_subplot(1, cols, 1)
         ax.imshow(query_image)
-        ax.set_title(f"Query\n{query_info}", color="blue", fontweight="bold")
+        ax.set_title(
+            f"Query\n{query_info}",
+            color="blue",
+            fontweight="bold",
+            fontsize=_OVERVIEW_TITLE_FONTSIZE,
+        )
         ax.axis("off")
-
-        # Row 2, Col 1 (Empty or repeat?)
-        # Let's leave it empty or show text
-        ax = fig.add_subplot(rows, cols, cols + 1)
-        ax.axis("off")
-
         start_col = 2
     else:
         start_col = 1
 
-    # Plot Results
     for i, res in enumerate(results):
-        # Row 1: 384x384
-        ax1 = fig.add_subplot(rows, cols, start_col + i)
+        ax1 = fig.add_subplot(1, cols, start_col + i)
         img_384 = res.get("image_384")
-        if img_384:
+        if img_384 is not None:
             ax1.imshow(img_384)
-            ax1.set_title(
-                f"Rank {i + 1} (384)\nScore: {res['score']:.4f}\n({res['lat']:.2f}, {res['lon']:.2f})", fontsize=9
-            )
+            ax1.set_title(_result_overview_title(i + 1, res), fontsize=_OVERVIEW_TITLE_FONTSIZE)
         else:
             ax1.text(0.5, 0.5, "N/A", ha="center", va="center")
         ax1.axis("off")
 
-        # Row 2: Full
-        ax2 = fig.add_subplot(rows, cols, cols + start_col + i)
-        img_full = res.get("image_full")
-        if img_full:
-            ax2.imshow(img_full)
-            ax2.set_title("Original", fontsize=9)
-        else:
-            ax2.text(0.5, 0.5, "N/A", ha="center", va="center")
-        ax2.axis("off")
-
     fig.tight_layout()
+    return fig
 
-    # Save to buffer
+
+def plot_top5_overview(query_image, results, query_info="Query"):
+    """Render the query (when present) and 384px results in one row."""
+    fig = _build_top5_figure(query_image, results, query_info)
+    if fig is None:
+        return None
+
     buf = BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)

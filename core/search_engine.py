@@ -1112,6 +1112,7 @@ def _fetch_top_k_images(top_indices, probs, df_embed, query_text=None):
                         "id": row["product_id"],
                         "lat": row["centre_lat"],
                         "lon": row["centre_lon"],
+                        "timestamp": row.get("timestamp"),
                         "score": probs[idx],
                         "image_384": img_384,
                         "image_full": img_full,
