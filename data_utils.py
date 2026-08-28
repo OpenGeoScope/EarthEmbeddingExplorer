@@ -8,6 +8,8 @@ import pyarrow.parquet as pq
 from PIL import Image, ImageDraw, ImageFont
 from rasterio.io import MemoryFile
 
+from clay_metadata import resolve_clay_metadata, timestamp_from_tiff_tags, wgs84_centroid
+
 
 def preprocess_s2_true_color(rgb_array):
     """
@@ -32,10 +34,24 @@ def crop_center(img_array, cropx, cropy):
     return img_array[starty : starty + cropy, startx : startx + cropx]
 
 
-def read_tif_bytes(tif_bytes):
+def read_tif_bytes(tif_bytes, return_metadata=False):
     with MemoryFile(tif_bytes) as mem_f:
         with mem_f.open(driver="GTiff") as f:
-            return f.read().squeeze()
+            array = f.read().squeeze()
+            if not return_metadata:
+                return array
+            bounds = tuple(f.bounds)
+            crs = f.crs.to_string() if f.crs is not None else None
+            tags = f.tags()
+            centroid = wgs84_centroid(bounds, crs)
+            metadata = {
+                "bounds": bounds,
+                "crs": crs,
+                "tags": tags,
+                "tiff_timestamp": timestamp_from_tiff_tags(tags),
+                "centroid": centroid,
+            }
+            return array, metadata
 
 
 def _fsspec_options_for(url):
@@ -76,7 +92,7 @@ def _parquet_has_column(row_dict, column):
         return False
 
 
-def read_row_memory(row_dict, columns=None):
+def read_row_memory(row_dict, columns=None, include_raster_metadata=False):
     if columns is None:
         columns = ["thumbnail"]
     url = row_dict["parquet_url"]
@@ -86,17 +102,25 @@ def read_row_memory(row_dict, columns=None):
 
     with fsspec.open(url, mode="rb", **fs_options) as f:
         with pq.ParquetFile(f) as pf:
-            table = pf.read_row_group(row_idx, columns=columns)
+            available_columns = set(pf.schema_arrow.names)
+            table = pf.read_row_group(row_idx, columns=[column for column in columns if column in available_columns])
 
     row_output = {}
     for col in columns:
+        if col not in table.column_names:
+            continue
         col_data = table[col][0].as_py()
 
-        if col != "thumbnail":
-            row_output[col] = read_tif_bytes(col_data)
-        else:
+        if col == "thumbnail":
             stream = BytesIO(col_data)
             row_output[col] = Image.open(stream)
+        elif col in {*MULTIBAND_COLUMNS, "cloud_mask"}:
+            if include_raster_metadata and "raster_metadata" not in row_output:
+                row_output[col], row_output["raster_metadata"] = read_tif_bytes(col_data, return_metadata=True)
+            else:
+                row_output[col] = read_tif_bytes(col_data)
+        else:
+            row_output[col] = col_data
 
     return row_output
 
@@ -247,7 +271,9 @@ def reorder_multiband(multiband_array, target_bands, source_bands=None):
     return multiband_array[..., indices]
 
 
-def download_and_process_image(product_id, df_source=None, verbose=True, mode="thumbnail", normalize=True):
+def download_and_process_image(
+    product_id, df_source=None, verbose=True, mode="thumbnail", normalize=True, return_metadata=False
+):
     """
     Download and process a MajorTOM image.
 
@@ -261,16 +287,21 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
             "multiband"           — read all 12 S2 bands + thumbnail for preview.
         normalize: For mode="rgb", whether to apply true-color normalization.
                    Set to False if you need raw band values for model preprocessing.
+        return_metadata: For multiband mode, append resolved TIFF/source-row
+            metadata without changing the default return tuple.
 
     Returns:
         mode="thumbnail" → (img_384, img_full)          — PIL Images from thumbnail.
         mode="rgb"       → (img_384, img_full)          — PIL Images from RGB bands.
         mode="multiband" → (img_384, img_full, bands)   — thumbnail preview + np.ndarray (H, W, 12) uint16.
+        mode="multiband", return_metadata=True → (..., metadata).
     """
     os.environ.setdefault("MODEL_DOMAIN", "modelscope.cn")
     row_dict, _err = _prepare_row_dict(product_id, df_source, verbose)
     if row_dict is None:
-        return (None, None) if mode != "multiband" else (None, None, None)
+        if mode != "multiband":
+            return None, None
+        return (None, None, None, None) if return_metadata else (None, None, None)
 
     if verbose:
         print(f"⬇️ Fetching data for {product_id} [mode={mode}] from {row_dict['parquet_url']}...")
@@ -306,8 +337,13 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
 
         # ---- multiband mode ----
         elif mode == "multiband":
-            columns_to_read = ["thumbnail", *MULTIBAND_COLUMNS]
-            data = read_row_memory(row_dict, columns=columns_to_read)
+            columns_to_read = ["product_id", "thumbnail", "product_datetime", *MULTIBAND_COLUMNS]
+            data = read_row_memory(row_dict, columns=columns_to_read, include_raster_metadata=return_metadata)
+            downloaded_product_id = data.get("product_id")
+            if downloaded_product_id is not None and downloaded_product_id != product_id:
+                raise ValueError(
+                    f"Source row product mismatch: requested {product_id}, downloaded {downloaded_product_id}"
+                )
 
             # Preview from thumbnail (fallback to RGB composite)
             if "thumbnail" in data and data["thumbnail"] is not None:
@@ -332,6 +368,8 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
             if ref_shape is None:
                 if verbose:
                     print(f"❌ No usable band data for {product_id}; cannot build multiband array.")
+                if return_metadata:
+                    return img_384, img_full, None, None
                 return img_384, img_full, None
 
             band_arrays = []
@@ -354,6 +392,30 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
 
             if verbose:
                 print(f"✅ Successfully processed {product_id} (multiband {multiband_array.shape})")
+            if return_metadata:
+                raster_metadata = data.get("raster_metadata") or {}
+                centroid = raster_metadata.get("centroid")
+                latlon_candidates = []
+                if centroid is not None:
+                    latlon_candidates.append((*centroid, "tiff_bounds"))
+                latlon_candidates.append((row_dict.get("centre_lat"), row_dict.get("centre_lon"), "embedding_center"))
+                metadata = resolve_clay_metadata(
+                    time_candidates=[
+                        (raster_metadata.get("tiff_timestamp"), "tiff_tag"),
+                        (data.get("product_datetime"), "parquet_product_datetime"),
+                        (row_dict.get("timestamp"), "embedding_timestamp"),
+                    ],
+                    latlon_candidates=latlon_candidates,
+                )
+                metadata.update(
+                    {
+                        "product_id": product_id,
+                        "product_datetime": data.get("product_datetime"),
+                        "raster_crs": raster_metadata.get("crs"),
+                        "raster_bounds": raster_metadata.get("bounds"),
+                    }
+                )
+                return img_384, img_full, multiband_array, metadata
             return img_384, img_full, multiband_array
 
         else:
@@ -367,7 +429,9 @@ def download_and_process_image(product_id, df_source=None, verbose=True, mode="t
         import traceback
 
         traceback.print_exc()
-        return (None, None) if mode != "multiband" else (None, None, None)
+        if mode != "multiband":
+            return None, None
+        return (None, None, None, None) if return_metadata else (None, None, None)
 
 
 def get_placeholder_image(text="Image Unavailable", size=(384, 384)):

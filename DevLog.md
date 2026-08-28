@@ -4,6 +4,7 @@ This log condenses the Git history into weekly user-facing features, bug fixes, 
 
 ## 2026-W35 (Aug 24-30)
 
+- **Feature:** Added real acquisition-time and TIFF-footprint inputs to Clay v1.5 embedding generation and retrieval.
 - **Feature:** Migrated OlmoEarth retrieval to OlmoEarth-v1_2-Base with real acquisition timestamps and 3D temporal encoding.
 - **Fix:** Preserved the true spatial extent of resized OlmoEarth inputs by passing the effective 30 m encoder resolution.
 - **Fix:** Aligned Core-S2L2A-249k source URLs, row-group indices, and online band resampling so downloaded queries match indexed pixels.

@@ -433,9 +433,9 @@ div.form:has(.filter-checkbox) {
     current_fig = gr.State()
     map_data_state = gr.State()
     multiband_state = gr.State(value=None)  # Stores 12-band numpy array for multi-spectral encoding
-    image_metadata_state = gr.State(value=None)  # Stores product_id and acquisition timestamp
+    image_metadata_state = gr.State(value=None)  # Stores source identity plus temporal/spatial model metadata
 
-    # Clear downloaded bands and timestamp only when the user replaces the
+    # Clear downloaded bands and metadata only when the user replaces the
     # query image. `.input` covers upload, webcam, and clipboard sources but,
     # unlike `.change`, does not fire for the download button's programmatic update.
     def _clear_downloaded_image_state():

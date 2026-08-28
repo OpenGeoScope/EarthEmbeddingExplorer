@@ -6,6 +6,7 @@ import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
+from clay_metadata import clay_metadata_status
 from data_utils import download_and_process_image
 from visualize import plot_global_map_static
 
@@ -210,13 +211,26 @@ def download_image_by_location(lat, lon, pid, model_name, models):
         # For multi-spectral models: download multiband for encoding; thumbnail for display
         needs_multiband = getattr(model, "requires_multiband", False)
         if needs_multiband:
-            result = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="multiband")
-            img_384, _, multiband_array = result
+            needs_clay_metadata = getattr(model, "supports_spatiotemporal_metadata", False)
+            result = download_and_process_image(
+                pid,
+                df_source=model.df_embed,
+                verbose=True,
+                mode="multiband",
+                return_metadata=needs_clay_metadata,
+            )
+            if needs_clay_metadata:
+                img_384, _, multiband_array, clay_metadata = result
+                if clay_metadata:
+                    image_metadata.update(clay_metadata)
+            else:
+                img_384, _, multiband_array = result
             if img_384 is None:
                 return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None, None
+            metadata_status = f" {clay_metadata_status(image_metadata)}" if needs_clay_metadata else ""
             return (
                 img_384,
-                f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}]",
+                f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}].{metadata_status}",
                 multiband_array,
                 image_metadata,
             )
