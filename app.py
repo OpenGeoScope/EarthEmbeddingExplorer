@@ -29,6 +29,7 @@ from ui.callbacks import (
     needs_hidden_tab_examples_fix,
     reset_to_global_map,
 )
+from ui.example_controls import render_text_example_buttons
 from visualize import warm_up_map_data
 
 # Environment variable for controlling download endpoint
@@ -116,8 +117,20 @@ def _download_image_by_location(lat, lon, pid, model_name):
     return download_image_by_location(lat, lon, pid, model_name, models)
 
 
-# Text query samples for the Mixed Search tab. Module-level so the Gradio 6
-# hidden-tab re-render workaround below can reference the same list.
+# Text query samples shared by the controls below. Mixed samples remain nested
+# because gr.Examples expects one list per row.
+TEXT_EXAMPLE_QUERIES = [
+    "a satellite image of a river around a city",
+    "a satellite image of a rainforest",
+    (
+        "a satellite image with rectangular cattle pasture clearings, "
+        "dust-toned access roads, and remaining rainforest blocks"
+    ),
+    "a satellite image of a slum",
+    "a satellite image of a glacier",
+    "a satellite image of snow covered mountains",
+]
+
 MIXED_TEXT_EXAMPLE_QUERIES = [
     ["a satellite image of a river around a city"],
     ["a satellite image of a rainforest"],
@@ -185,6 +198,15 @@ with gr.Blocks(
     css="""
 /* Left-align text samples in gr.Examples (button default is centered) */
 .gallery-item { text-align: left !important; }
+.text-example-list { gap: 6px !important; }
+.text-example-label p { margin: 0 !important; }
+.text-example-button {
+    height: auto !important;
+    min-height: 34px !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    white-space: normal !important;
+}
 .filter-checkbox {
     background: transparent !important;
     border: 1px solid #d1d5db !important;
@@ -245,20 +267,7 @@ div.form:has(.filter-checkbox) {
                     )
                     query_input = gr.Textbox(label="Query", placeholder="e.g., rainforest, glacier")
 
-                    gr.Examples(
-                        examples=[
-                            ["a satellite image of a river around a city"],
-                            ["a satellite image of a rainforest"],
-                            [
-                                "a satellite image with rectangular cattle pasture clearings, dust-toned access roads, and remaining rainforest blocks"
-                            ],
-                            ["a satellite image of a slum"],
-                            ["a satellite image of a glacier"],
-                            ["a satellite image of snow covered mountains"],
-                        ],
-                        inputs=[query_input],
-                        label="Text Examples",
-                    )
+                    render_text_example_buttons(TEXT_EXAMPLE_QUERIES, query_input)
 
                     search_btn = gr.Button("Search by Text", variant="primary", interactive=bool(TEXT_MODELS))
 
