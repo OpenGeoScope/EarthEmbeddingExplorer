@@ -26,7 +26,6 @@ def render_text_example_buttons(queries, target):
                 js=text_example_js(query),
                 queue=False,
                 show_progress="hidden",
-                api_visibility="private",
             )
             buttons.append(button)
     return buttons

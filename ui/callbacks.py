@@ -37,7 +37,6 @@ def bind_tab_map_visibility(tab, plot_map):
         outputs=[plot_map],
         queue=False,
         show_progress="hidden",
-        api_visibility="private",
     )
 
 
