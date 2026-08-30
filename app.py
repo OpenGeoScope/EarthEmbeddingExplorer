@@ -168,7 +168,6 @@ def fix_hidden_tab_examples(tab, examples, raw_samples):
         inputs=None,
         outputs=[examples.dataset],
         show_progress="hidden",
-        api_visibility="private",
     )
 
 
