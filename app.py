@@ -4,6 +4,7 @@ import time
 
 import gradio as gr
 
+from core.all_model_search import search_all_image_models, search_all_text_models
 from core.exporters import save_plot
 from core.filters import build_filter_options
 
@@ -264,6 +265,7 @@ div.form:has(.filter-checkbox) {
                         value=_default_model(TEXT_MODELS, "FarSLIP"),
                         label="Model",
                     )
+                    search_all_text = gr.Checkbox(label="Search with all text-image models", value=False)
                     query_input = gr.Textbox(label="Query", placeholder="e.g., rainforest, glacier")
 
                     render_text_example_buttons(TEXT_EXAMPLE_QUERIES, query_input)
@@ -276,6 +278,7 @@ div.form:has(.filter-checkbox) {
                         value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
+                    search_all_image = gr.Checkbox(label="Search with all text-image models", value=False)
 
                     gr.Markdown(
                         "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth-v1_2), please select a geolocation on the map "
@@ -441,6 +444,7 @@ div.form:has(.filter-checkbox) {
                 visible=True,
             )
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
+            all_model_plots = gr.Gallery(label="All-Model Comparison Figures", columns=2, height="auto", visible=False)
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
     # Keep large global objects out of State defaults: Gradio deep-copies
@@ -532,15 +536,31 @@ div.form:has(.filter-checkbox) {
     ]
 
     def _wrap_search_text(
-        query, threshold, model_name, enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max
+        query,
+        threshold,
+        model_name,
+        search_all,
+        enable_time,
+        start_date,
+        end_date,
+        enable_geo,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from _search_text(model_manager, query, threshold, model_name, fo)
+        if search_all:
+            yield from search_all_text_models(model_manager, query, threshold, TEXT_MODELS, fo)
+        else:
+            for output in _search_text(model_manager, query, threshold, model_name, fo):
+                yield (*output, gr.update(visible=False))
 
     def _wrap_search_image(
         image_input,
         threshold,
         model_name,
+        search_all,
         enable_time,
         start_date,
         end_date,
@@ -553,15 +573,19 @@ div.form:has(.filter-checkbox) {
         image_metadata=None,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from _search_image(
-            model_manager,
-            image_input,
-            threshold,
-            model_name,
-            fo,
-            multiband_data=multiband_data,
-            image_metadata=image_metadata,
-        )
+        if search_all:
+            yield from search_all_image_models(model_manager, image_input, threshold, TEXT_MODELS, fo)
+        else:
+            for output in _search_image(
+                model_manager,
+                image_input,
+                threshold,
+                model_name,
+                fo,
+                multiband_data=multiband_data,
+                image_metadata=image_metadata,
+            ):
+                yield (*output, gr.update(visible=False))
 
     def _wrap_search_location(
         lat, lon, threshold, enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
@@ -569,7 +593,8 @@ div.form:has(.filter-checkbox) {
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
-        yield from _search_location(model_manager, lat, lon, threshold, fo)
+        for output in _search_location(model_manager, lat, lon, threshold, fo):
+            yield (*output, gr.update(visible=False))
 
     def _wrap_search_mixed(
         query_text,
@@ -599,7 +624,7 @@ div.form:has(.filter-checkbox) {
             # Coordinates may be leftover from a map click; without the explicit
             # opt-in they must not silently join the fusion (location weight > 0).
             lat, lon = None, None
-        yield from _search_mixed(
+        for output in _search_mixed(
             model_manager,
             query_text,
             query_image,
@@ -612,7 +637,8 @@ div.form:has(.filter-checkbox) {
             model_name,
             fo,
             use_native_joint,
-        )
+        ):
+            yield (*output, gr.update(visible=False))
 
     # Toggle native-joint checkbox visibility based on selected mixed-search model.
     def _toggle_native_joint(model_name):
@@ -624,6 +650,24 @@ div.form:has(.filter-checkbox) {
         outputs=[use_native_joint_checkbox],
     )
 
+    def _toggle_single_model(enabled):
+        return gr.update(interactive=not enabled)
+
+    search_all_text.change(
+        fn=_toggle_single_model,
+        inputs=[search_all_text],
+        outputs=[model_selector_text],
+        queue=False,
+        show_progress="hidden",
+    )
+    search_all_image.change(
+        fn=_toggle_single_model,
+        inputs=[search_all_image],
+        outputs=[model_selector_img],
+        queue=False,
+        show_progress="hidden",
+    )
+
     # Search Event (Text)
     search_btn.click(
         fn=_wrap_search_text,
@@ -631,6 +675,7 @@ div.form:has(.filter-checkbox) {
             query_input,
             threshold_slider,
             model_selector_text,
+            search_all_text,
             *_filter_inputs,
         ],
         outputs=[
@@ -640,6 +685,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -650,6 +696,7 @@ div.form:has(.filter-checkbox) {
             image_input,
             threshold_slider,
             model_selector_img,
+            search_all_image,
             *_filter_inputs,
             multiband_state,
             image_metadata_state,
@@ -661,6 +708,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -675,6 +723,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -702,6 +751,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 

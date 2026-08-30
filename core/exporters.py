@@ -1,8 +1,10 @@
 import os
+import re
 import tempfile
 import time
 import uuid
 import zipfile
+from datetime import datetime, timezone
 
 import gradio as gr
 import numpy as np
@@ -12,13 +14,77 @@ from data_utils import download_and_process_image
 
 # Prefixes of temporary files created by this app (see save_plot).
 _TEMP_FILE_PREFIXES = (
-    "earth_embedding_explorer_results_",
+    "earth_embedding_explorer_",
     "earth_explorer_map_",
     "earth_explorer_plot_",
     "map_distribution_",
     "retrieval_results_",
     "rank",
 )
+
+
+def _safe_filename_part(value, fallback):
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_").lower()
+    return slug[:48] or fallback
+
+
+def _save_all_model_archive(bundle, models, download_mode):
+    mode = bundle.get("query_mode", "search")
+    query_slug = _safe_filename_part(bundle.get("query_label"), "query")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    zip_name = f"earth_embedding_explorer_{mode}_all_models_{query_slug}_{timestamp}.zip"
+    zip_path = os.path.join(tempfile.gettempdir(), zip_name)
+    temporary_archives = []
+
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as destination:
+            model_names = [artifact["model_name"] for artifact in bundle.get("models", [])]
+            destination.writestr(
+                "manifest.txt",
+                "EarthEmbeddingExplorer all-model export\n"
+                f"Mode: {mode}\n"
+                f"Query: {bundle.get('query_label', '')}\n"
+                f"Models: {', '.join(model_names)}\n"
+                f"Created (UTC): {timestamp}\n",
+            )
+
+            for index, artifact in enumerate(bundle.get("models", []), start=1):
+                model_name = artifact["model_name"]
+                model_slug = _safe_filename_part(model_name, f"model_{index}")
+                folder = f"{index:02d}_{model_slug}"
+                package = [
+                    artifact.get("distribution"),
+                    artifact.get("overview"),
+                    artifact.get("results_text"),
+                    artifact.get("results_meta"),
+                    model_name,
+                ]
+                model_archive = save_plot(package, models, download_mode)
+                if model_archive is None or not zipfile.is_zipfile(model_archive):
+                    continue
+                temporary_archives.append(model_archive)
+
+                with zipfile.ZipFile(model_archive) as source:
+                    for member in source.namelist():
+                        if member == "map_distribution.png":
+                            target = f"{folder}/{model_slug}_{mode}_distribution.png"
+                        elif member == "retrieval_results.png":
+                            target = f"{folder}/{model_slug}_{mode}_top5.png"
+                        elif member == "results.txt":
+                            target = f"{folder}/{model_slug}_{mode}_results.txt"
+                        elif member.startswith("images/"):
+                            target = f"{folder}/{member}"
+                        else:
+                            target = f"{folder}/{member}"
+                        destination.writestr(target, source.read(member))
+
+        return zip_path
+    finally:
+        for path in temporary_archives:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def _cleanup_stale_temp_files(max_age_seconds=24 * 3600):
@@ -49,6 +115,9 @@ def save_plot(figs, models, download_mode="thumbnail"):
       - "multiband": re-download all 12 S2 bands and save as .npy per image
     """
     _cleanup_stale_temp_files()
+
+    if isinstance(figs, dict) and figs.get("kind") == "all_models":
+        return _save_all_model_archive(figs, models, download_mode)
 
     if figs is None or (isinstance(figs, (list, tuple)) and len(figs) == 0):
         gr.Warning("Nothing to download yet — run a search first.")
