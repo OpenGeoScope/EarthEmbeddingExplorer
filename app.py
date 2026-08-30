@@ -22,9 +22,11 @@ from core.search_engine import (
     search_text as _search_text,
 )
 from ui.callbacks import (
+    bind_tab_map_visibility,
     download_image_by_location,
     get_global_map,
     handle_map_click,
+    needs_hidden_tab_examples_fix,
     reset_to_global_map,
 )
 from visualize import warm_up_map_data
@@ -161,7 +163,13 @@ def fix_hidden_tab_examples(tab, examples, raw_samples):
         time.sleep(0.4)
         yield gr.Dataset(samples=raw_samples)
 
-    tab.select(fn=_fix, inputs=None, outputs=[examples.dataset])
+    tab.select(
+        fn=_fix,
+        inputs=None,
+        outputs=[examples.dataset],
+        show_progress="hidden",
+        api_visibility="private",
+    )
 
 
 # Gradio Blocks Interface
@@ -699,22 +707,17 @@ div.form:has(.filter-checkbox) {
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
 
-    # Tab Selection Events — re-show the map when switching tabs (a failed or
-    # empty search may have hidden it).
-    def show_static_map():
-        return gr.update(visible=True)
-
-    tab_text.select(fn=show_static_map, outputs=[plot_map])
-    tab_image.select(fn=show_static_map, outputs=[plot_map])
-    tab_location.select(fn=show_static_map, outputs=[plot_map])
-    tab_mixed.select(fn=show_static_map, outputs=[plot_map])
+    # Re-show the shared map without waiting behind model inference jobs.
+    for tab in (tab_text, tab_image, tab_location, tab_mixed):
+        bind_tab_map_visibility(tab, plot_map)
 
     # Gradio 6.17.x hidden-tab Examples rendering bug: force re-render on tab
     # select for every Examples component not in the initially-visible tab.
-    fix_hidden_tab_examples(tab_image, ex_img, IMAGE_EXAMPLE_FILES)
-    fix_hidden_tab_examples(tab_location, ex_loc, LOCATION_EXAMPLE_COORDS)
-    fix_hidden_tab_examples(tab_mixed, mixed_text_examples, MIXED_TEXT_EXAMPLE_QUERIES)
-    fix_hidden_tab_examples(tab_mixed, ex_mixed_img, IMAGE_EXAMPLE_FILES)
+    if needs_hidden_tab_examples_fix(gr.__version__):
+        fix_hidden_tab_examples(tab_image, ex_img, IMAGE_EXAMPLE_FILES)
+        fix_hidden_tab_examples(tab_location, ex_loc, LOCATION_EXAMPLE_COORDS)
+        fix_hidden_tab_examples(tab_mixed, mixed_text_examples, MIXED_TEXT_EXAMPLE_QUERIES)
+        fix_hidden_tab_examples(tab_mixed, ex_mixed_img, IMAGE_EXAMPLE_FILES)
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7859, share=False)

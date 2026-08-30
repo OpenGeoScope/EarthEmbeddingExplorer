@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 
 import cartopy.crs as ccrs
@@ -14,6 +15,30 @@ from visualize import plot_global_map_static
 # it. Re-rendering the dpi=350 scatter map on every page load used to make
 # the initial load slow (and pile up under concurrent sessions).
 _GLOBAL_MAP_CACHE = {}
+
+
+def needs_hidden_tab_examples_fix(version):
+    """Return whether this Gradio version needs the hidden-tab Examples workaround."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(version))
+    if match is None:
+        return False
+    parsed = tuple(int(part) for part in match.groups())
+    return (6, 17, 0) <= parsed < (6, 21, 0)
+
+
+def bind_tab_map_visibility(tab, plot_map):
+    """Keep the shared map visible without entering Gradio's prediction queue."""
+
+    def show_static_map():
+        return gr.update(visible=True)
+
+    return tab.select(
+        fn=show_static_map,
+        outputs=[plot_map],
+        queue=False,
+        show_progress="hidden",
+        api_visibility="private",
+    )
 
 
 def get_global_map(models):
