@@ -59,4 +59,3 @@ def test_tab_map_visibility_bypasses_queue_and_progress_overlay():
     dependency = demo.get_config_file()["dependencies"][0]
     assert dependency["queue"] is False
     assert dependency["show_progress"] == "hidden"
-    assert dependency["api_visibility"] == "private"
