@@ -5,6 +5,7 @@ import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from io import BytesIO
 
 import gradio as gr
 import numpy as np
@@ -85,6 +86,56 @@ def _save_all_model_archive(bundle, models, download_mode):
                 os.remove(path)
             except OSError:
                 pass
+
+
+def _write_png(zip_file, image, filename):
+    if image is None:
+        return False
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    zip_file.writestr(filename, buffer.getvalue())
+    return True
+
+
+def save_comparison_figures(figs):
+    """Export cached distribution and Top-5 figures without downloading imagery."""
+    _cleanup_stale_temp_files()
+    if figs is None:
+        gr.Warning("Nothing to download yet — run a search first.")
+        return None
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if isinstance(figs, dict) and figs.get("kind") == "all_models":
+        mode = figs.get("query_mode", "search")
+        archive_name = f"earth_embedding_explorer_{mode}_comparison_figures_{timestamp}.zip"
+        entries = [
+            (artifact["model_name"], artifact.get("distribution"), artifact.get("overview"))
+            for artifact in figs.get("models", [])
+        ]
+    elif isinstance(figs, (list, tuple)) and len(figs) >= 5:
+        model_name = figs[4] or "model"
+        archive_name = f"earth_embedding_explorer_{_safe_filename_part(model_name, 'model')}_figures_{timestamp}.zip"
+        entries = [(model_name, figs[0], figs[1])]
+    else:
+        gr.Warning("No distribution or Top-5 figures are available.")
+        return None
+
+    archive_path = os.path.join(tempfile.gettempdir(), archive_name)
+    written = False
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+        for model_name, distribution, top5 in entries:
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(model_name)).strip("_") or "model"
+            written |= _write_png(zip_file, distribution, f"{safe_name}_distribution.png")
+            written |= _write_png(zip_file, top5, f"{safe_name}_Top5.png")
+
+    if not written:
+        try:
+            os.remove(archive_path)
+        except OSError:
+            pass
+        gr.Warning("No distribution or Top-5 figures are available.")
+        return None
+    return archive_path
 
 
 def _cleanup_stale_temp_files(max_age_seconds=24 * 3600):

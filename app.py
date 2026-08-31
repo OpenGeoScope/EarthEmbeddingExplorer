@@ -5,7 +5,7 @@ import time
 import gradio as gr
 
 from core.all_model_search import search_all_image_models, search_all_text_models
-from core.exporters import save_plot
+from core.exporters import save_comparison_figures, save_plot
 from core.filters import build_filter_options
 
 # Import extracted modules
@@ -83,6 +83,10 @@ IMAGE_MODELS = _ordered_available_models(
 )
 MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
+ALL_MODEL_DOWNLOAD_MODEL = next(
+    (name for name in ("Clay", "OlmoEarth-v1_2", "SatCLIP") if name in IMAGE_MODELS),
+    None,
+)
 
 # UI display names: internal keys (config/EEX_MODELS/registry) stay unchanged;
 # only the labels shown in model dropdowns are overridden here.
@@ -278,7 +282,7 @@ div.form:has(.filter-checkbox) {
                         value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
-                    search_all_image = gr.Checkbox(label="Search with all text-image models", value=False)
+                    search_all_image = gr.Checkbox(label="Search with all models", value=False)
 
                     gr.Markdown(
                         "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth-v1_2), please select a geolocation on the map "
@@ -429,7 +433,8 @@ div.form:has(.filter-checkbox) {
                 label="Image Download Mode",
                 info="thumbnail: fast preview | rgb: B04/B03/B02 composite | multiband: all 12 S2 bands",
             )
-            save_btn = gr.Button("Download Result")
+            save_btn = gr.Button("Download Results")
+            save_figures_btn = gr.Button("Download Distribution Maps and Top-5 Images")
             download_file = gr.File(label="Zipped Results", height=40)
 
         with gr.Column(scale=6):
@@ -444,7 +449,13 @@ div.form:has(.filter-checkbox) {
                 visible=True,
             )
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
-            all_model_plots = gr.Gallery(label="All-Model Comparison Figures", columns=2, height="auto", visible=False)
+            all_model_plots = gr.Gallery(
+                label="All-Model Comparison Figures",
+                columns=1,
+                height=800,
+                object_fit="contain",
+                visible=False,
+            )
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
     # Keep large global objects out of State defaults: Gradio deep-copies
@@ -496,12 +507,15 @@ div.form:has(.filter-checkbox) {
     )
 
     # Download Image by Geolocation
-    def _download_image(lat, lon, pid, model_name):
-        return download_image_by_location(lat, lon, pid, model_name, models)
+    def _download_image(lat, lon, pid, model_name, search_all):
+        effective_model = ALL_MODEL_DOWNLOAD_MODEL if search_all else model_name
+        if effective_model is None:
+            return None, "No multispectral model is available for all-model search.", None, None
+        return download_image_by_location(lat, lon, pid, effective_model, models)
 
     btn_download_img.click(
         fn=_download_image,
-        inputs=[img_lat, img_lon, img_pid, model_selector_img],
+        inputs=[img_lat, img_lon, img_pid, model_selector_img, search_all_image],
         outputs=[image_input, img_click_status, multiband_state, image_metadata_state],
     )
 
@@ -574,7 +588,15 @@ div.form:has(.filter-checkbox) {
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
         if search_all:
-            yield from search_all_image_models(model_manager, image_input, threshold, TEXT_MODELS, fo)
+            yield from search_all_image_models(
+                model_manager,
+                image_input,
+                threshold,
+                IMAGE_MODELS,
+                fo,
+                multiband_data=multiband_data,
+                image_metadata=image_metadata,
+            )
         else:
             for output in _search_image(
                 model_manager,
@@ -764,6 +786,8 @@ div.form:has(.filter-checkbox) {
         return save_plot(figures, models, download_mode)
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
+
+    save_figures_btn.click(fn=save_comparison_figures, inputs=[current_fig], outputs=[download_file])
 
     # Re-show the shared map without waiting behind model inference jobs.
     for tab in (tab_text, tab_image, tab_location, tab_mixed):

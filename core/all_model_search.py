@@ -34,12 +34,28 @@ def _all_model_search(
     threshold,
     model_names,
     filter_options=None,
+    multiband_data=None,
+    image_metadata=None,
 ):
     if mode == "text" and not query:
         yield gr.update(), "Please enter a query.", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
         return
     if mode == "image" and query is None:
         yield gr.update(), "Please upload an image.", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return
+    if mode == "image" and (multiband_data is None or image_metadata is None):
+        yield (
+            gr.update(),
+            (
+                "Search with all models requires a downloaded multispectral image.\n"
+                "Select a location and click 'Download Image by Geolocation' first."
+            ),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+        )
         return
 
     available = []
@@ -48,7 +64,7 @@ def _all_model_search(
         model, error = model_manager.get_model(model_name)
         if error or model is None:
             unavailable.append(model_name)
-        elif getattr(model, "requires_multiband", False):
+        elif mode == "text" and getattr(model, "requires_multiband", False):
             unavailable.append(model_name)
         else:
             available.append(model_name)
@@ -78,7 +94,15 @@ def _all_model_search(
             if mode == "text":
                 generator = search_text(model_manager, query, threshold, model_name, filter_options)
             else:
-                generator = search_image(model_manager, query, threshold, model_name, filter_options)
+                generator = search_image(
+                    model_manager,
+                    query,
+                    threshold,
+                    model_name,
+                    filter_options,
+                    multiband_data=multiband_data,
+                    image_metadata=image_metadata,
+                )
 
             final_output = None
             for output in generator:
@@ -156,5 +180,22 @@ def search_all_text_models(model_manager, query, threshold, model_names, filter_
     yield from _all_model_search(model_manager, "text", query, threshold, model_names, filter_options)
 
 
-def search_all_image_models(model_manager, image, threshold, model_names, filter_options=None):
-    yield from _all_model_search(model_manager, "image", image, threshold, model_names, filter_options)
+def search_all_image_models(
+    model_manager,
+    image,
+    threshold,
+    model_names,
+    filter_options=None,
+    multiband_data=None,
+    image_metadata=None,
+):
+    yield from _all_model_search(
+        model_manager,
+        "image",
+        image,
+        threshold,
+        model_names,
+        filter_options,
+        multiband_data=multiband_data,
+        image_metadata=image_metadata,
+    )
