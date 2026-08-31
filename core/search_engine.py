@@ -1154,7 +1154,7 @@ def _get_all_results_metadata(model, filtered_indices, probs):
 def _generate_status_msg(count, threshold, results):
     """Generate status message with top results summary."""
     status_msg = f"Found {count} matches in top {threshold * 100:.0f}‰.\n\nTop {len(results)} similar images:\n"
-    for i, res in enumerate(results[:3]):
+    for i, res in enumerate(results):
         status_msg += f"{i + 1}. Product ID: {res['id']}, Location: ({res['lat']:.4f}, {res['lon']:.4f}), Score: {res['score']:.4f}\n"
     return status_msg
 
