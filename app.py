@@ -211,6 +211,26 @@ with gr.Blocks(
     text-align: left !important;
     white-space: normal !important;
 }
+.all-model-comparison .grid-wrap {
+    padding: 0 !important;
+}
+.all-model-comparison .grid-container {
+    grid-template-rows: none !important;
+    grid-auto-rows: auto !important;
+    gap: 8px !important;
+}
+.all-model-comparison .gallery-item,
+.all-model-comparison .thumbnail-lg {
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: auto !important;
+}
+.all-model-comparison .thumbnail-lg > img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    object-fit: contain !important;
+}
 .filter-checkbox {
     background: transparent !important;
     border: 1px solid #d1d5db !important;
@@ -452,8 +472,9 @@ div.form:has(.filter-checkbox) {
             all_model_plots = gr.Gallery(
                 label="All-Model Comparison Figures",
                 columns=1,
-                height=800,
+                height=1600,
                 object_fit="contain",
+                elem_classes=["all-model-comparison"],
                 visible=False,
             )
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
