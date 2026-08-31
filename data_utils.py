@@ -5,6 +5,7 @@ import cv2
 import fsspec
 import numpy as np
 import pyarrow.parquet as pq
+import rasterio
 from PIL import Image, ImageDraw, ImageFont
 from rasterio.io import MemoryFile
 
@@ -52,6 +53,48 @@ def read_tif_bytes(tif_bytes, return_metadata=False):
                 "centroid": centroid,
             }
             return array, metadata
+
+
+def load_multispectral_geotiff(path):
+    """Load a local 12-band example GeoTIFF and resolve its model metadata."""
+    with rasterio.open(path) as dataset:
+        if dataset.count != len(MULTIBAND_COLUMNS):
+            raise ValueError(f"Expected {len(MULTIBAND_COLUMNS)} bands, found {dataset.count}")
+        data = dataset.read()
+        descriptions = list(dataset.descriptions)
+        if all(name in descriptions for name in MULTIBAND_COLUMNS):
+            indices = [descriptions.index(name) for name in MULTIBAND_COLUMNS]
+            data = data[indices]
+        elif any(description is not None for description in descriptions):
+            raise ValueError(f"Unexpected GeoTIFF band descriptions: {descriptions}")
+
+        tags = dataset.tags()
+        bounds = tuple(dataset.bounds)
+        crs = dataset.crs.to_string() if dataset.crs is not None else None
+
+    centroid = wgs84_centroid(bounds, crs)
+    latlon_candidates = []
+    if centroid is not None:
+        latlon_candidates.append((*centroid, "tiff_bounds"))
+    latlon_candidates.append((tags.get("centre_lat"), tags.get("centre_lon"), "tiff_tag"))
+    metadata = resolve_clay_metadata(
+        time_candidates=[
+            (tags.get("product_datetime"), "tiff_tag"),
+            (tags.get("timestamp"), "tiff_tag"),
+            (timestamp_from_tiff_tags(tags), "tiff_tag"),
+        ],
+        latlon_candidates=latlon_candidates,
+    )
+    metadata.update(
+        {
+            "product_id": tags.get("product_id"),
+            "product_datetime": tags.get("product_datetime"),
+            "raster_crs": crs,
+            "raster_bounds": bounds,
+            "band_names": list(MULTIBAND_COLUMNS),
+        }
+    )
+    return data.transpose(1, 2, 0), metadata
 
 
 def _fsspec_options_for(url):
