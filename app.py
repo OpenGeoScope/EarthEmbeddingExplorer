@@ -4,7 +4,8 @@ import time
 
 import gradio as gr
 
-from core.exporters import save_plot
+from core.all_model_search import search_all_image_models, search_all_text_models
+from core.exporters import save_comparison_figures, save_plot
 from core.filters import build_filter_options
 
 # Import extracted modules
@@ -29,6 +30,7 @@ from ui.callbacks import (
     needs_hidden_tab_examples_fix,
     reset_to_global_map,
 )
+from ui.example_controls import render_text_example_buttons
 from visualize import warm_up_map_data
 
 # Environment variable for controlling download endpoint
@@ -81,6 +83,10 @@ IMAGE_MODELS = _ordered_available_models(
 )
 MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
+ALL_MODEL_DOWNLOAD_MODEL = next(
+    (name for name in ("Clay", "OlmoEarth-v1_2", "SatCLIP") if name in IMAGE_MODELS),
+    None,
+)
 
 # UI display names: internal keys (config/EEX_MODELS/registry) stay unchanged;
 # only the labels shown in model dropdowns are overridden here.
@@ -116,8 +122,20 @@ def _download_image_by_location(lat, lon, pid, model_name):
     return download_image_by_location(lat, lon, pid, model_name, models)
 
 
-# Text query samples for the Mixed Search tab. Module-level so the Gradio 6
-# hidden-tab re-render workaround below can reference the same list.
+# Text query samples shared by the controls below. Mixed samples remain nested
+# because gr.Examples expects one list per row.
+TEXT_EXAMPLE_QUERIES = [
+    "a satellite image of a river around a city",
+    "a satellite image of a rainforest",
+    (
+        "a satellite image with rectangular cattle pasture clearings, "
+        "dust-toned access roads, and remaining rainforest blocks"
+    ),
+    "a satellite image of a slum",
+    "a satellite image of a glacier",
+    "a satellite image of snow covered mountains",
+]
+
 MIXED_TEXT_EXAMPLE_QUERIES = [
     ["a satellite image of a river around a city"],
     ["a satellite image of a rainforest"],
@@ -184,6 +202,35 @@ with gr.Blocks(
     css="""
 /* Left-align text samples in gr.Examples (button default is centered) */
 .gallery-item { text-align: left !important; }
+.text-example-list { gap: 6px !important; }
+.text-example-label p { margin: 0 !important; }
+.text-example-button {
+    height: auto !important;
+    min-height: 34px !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    white-space: normal !important;
+}
+.all-model-comparison .grid-wrap {
+    padding: 0 !important;
+}
+.all-model-comparison .grid-container {
+    grid-template-rows: none !important;
+    grid-auto-rows: auto !important;
+    gap: 8px !important;
+}
+.all-model-comparison .gallery-item,
+.all-model-comparison .thumbnail-lg {
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: auto !important;
+}
+.all-model-comparison .thumbnail-lg > img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    object-fit: contain !important;
+}
 .filter-checkbox {
     background: transparent !important;
     border: 1px solid #d1d5db !important;
@@ -242,22 +289,10 @@ div.form:has(.filter-checkbox) {
                         value=_default_model(TEXT_MODELS, "FarSLIP"),
                         label="Model",
                     )
+                    search_all_text = gr.Checkbox(label="Search with all text-image models", value=False)
                     query_input = gr.Textbox(label="Query", placeholder="e.g., rainforest, glacier")
 
-                    gr.Examples(
-                        examples=[
-                            ["a satellite image of a river around a city"],
-                            ["a satellite image of a rainforest"],
-                            [
-                                "a satellite image with rectangular cattle pasture clearings, dust-toned access roads, and remaining rainforest blocks"
-                            ],
-                            ["a satellite image of a slum"],
-                            ["a satellite image of a glacier"],
-                            ["a satellite image of snow covered mountains"],
-                        ],
-                        inputs=[query_input],
-                        label="Text Examples",
-                    )
+                    render_text_example_buttons(TEXT_EXAMPLE_QUERIES, query_input)
 
                     search_btn = gr.Button("Search by Text", variant="primary", interactive=bool(TEXT_MODELS))
 
@@ -267,6 +302,7 @@ div.form:has(.filter-checkbox) {
                         value=_default_model(IMAGE_MODELS, "SigLIP"),
                         label="Model",
                     )
+                    search_all_image = gr.Checkbox(label="Search with all models", value=False)
 
                     gr.Markdown(
                         "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth-v1_2), please select a geolocation on the map "
@@ -417,7 +453,8 @@ div.form:has(.filter-checkbox) {
                 label="Image Download Mode",
                 info="thumbnail: fast preview | rgb: B04/B03/B02 composite | multiband: all 12 S2 bands",
             )
-            save_btn = gr.Button("Download Result")
+            save_btn = gr.Button("Download Results")
+            save_figures_btn = gr.Button("Download Distribution Maps and Top-5 Images")
             download_file = gr.File(label="Zipped Results", height=40)
 
         with gr.Column(scale=6):
@@ -432,6 +469,14 @@ div.form:has(.filter-checkbox) {
                 visible=True,
             )
             results_plot = gr.Image(label="Top 5 Matched Images", type="pil")
+            all_model_plots = gr.Gallery(
+                label="All-Model Comparison Figures",
+                columns=1,
+                height=1600,
+                object_fit="contain",
+                elem_classes=["all-model-comparison"],
+                visible=False,
+            )
             gallery_images = gr.Gallery(label="Top Retrieved Images (Zoom)", columns=3, height="auto")
 
     # Keep large global objects out of State defaults: Gradio deep-copies
@@ -483,12 +528,15 @@ div.form:has(.filter-checkbox) {
     )
 
     # Download Image by Geolocation
-    def _download_image(lat, lon, pid, model_name):
-        return download_image_by_location(lat, lon, pid, model_name, models)
+    def _download_image(lat, lon, pid, model_name, search_all):
+        effective_model = ALL_MODEL_DOWNLOAD_MODEL if search_all else model_name
+        if effective_model is None:
+            return None, "No multispectral model is available for all-model search.", None, None
+        return download_image_by_location(lat, lon, pid, effective_model, models)
 
     btn_download_img.click(
         fn=_download_image,
-        inputs=[img_lat, img_lon, img_pid, model_selector_img],
+        inputs=[img_lat, img_lon, img_pid, model_selector_img, search_all_image],
         outputs=[image_input, img_click_status, multiband_state, image_metadata_state],
     )
 
@@ -523,15 +571,31 @@ div.form:has(.filter-checkbox) {
     ]
 
     def _wrap_search_text(
-        query, threshold, model_name, enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max
+        query,
+        threshold,
+        model_name,
+        search_all,
+        enable_time,
+        start_date,
+        end_date,
+        enable_geo,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from _search_text(model_manager, query, threshold, model_name, fo)
+        if search_all:
+            yield from search_all_text_models(model_manager, query, threshold, TEXT_MODELS, fo)
+        else:
+            for output in _search_text(model_manager, query, threshold, model_name, fo):
+                yield (*output, gr.update(visible=False))
 
     def _wrap_search_image(
         image_input,
         threshold,
         model_name,
+        search_all,
         enable_time,
         start_date,
         end_date,
@@ -544,15 +608,27 @@ div.form:has(.filter-checkbox) {
         image_metadata=None,
     ):
         fo = build_filter_options(enable_time, start_date, end_date, enable_geo, lat_min, lat_max, lon_min, lon_max)
-        yield from _search_image(
-            model_manager,
-            image_input,
-            threshold,
-            model_name,
-            fo,
-            multiband_data=multiband_data,
-            image_metadata=image_metadata,
-        )
+        if search_all:
+            yield from search_all_image_models(
+                model_manager,
+                image_input,
+                threshold,
+                IMAGE_MODELS,
+                fo,
+                multiband_data=multiband_data,
+                image_metadata=image_metadata,
+            )
+        else:
+            for output in _search_image(
+                model_manager,
+                image_input,
+                threshold,
+                model_name,
+                fo,
+                multiband_data=multiband_data,
+                image_metadata=image_metadata,
+            ):
+                yield (*output, gr.update(visible=False))
 
     def _wrap_search_location(
         lat, lon, threshold, enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
@@ -560,7 +636,8 @@ div.form:has(.filter-checkbox) {
         fo = build_filter_options(
             enable_time, start_date, end_date, enable_geo, f_lat_min, f_lat_max, f_lon_min, f_lon_max
         )
-        yield from _search_location(model_manager, lat, lon, threshold, fo)
+        for output in _search_location(model_manager, lat, lon, threshold, fo):
+            yield (*output, gr.update(visible=False))
 
     def _wrap_search_mixed(
         query_text,
@@ -590,7 +667,7 @@ div.form:has(.filter-checkbox) {
             # Coordinates may be leftover from a map click; without the explicit
             # opt-in they must not silently join the fusion (location weight > 0).
             lat, lon = None, None
-        yield from _search_mixed(
+        for output in _search_mixed(
             model_manager,
             query_text,
             query_image,
@@ -603,7 +680,8 @@ div.form:has(.filter-checkbox) {
             model_name,
             fo,
             use_native_joint,
-        )
+        ):
+            yield (*output, gr.update(visible=False))
 
     # Toggle native-joint checkbox visibility based on selected mixed-search model.
     def _toggle_native_joint(model_name):
@@ -615,6 +693,24 @@ div.form:has(.filter-checkbox) {
         outputs=[use_native_joint_checkbox],
     )
 
+    def _toggle_single_model(enabled):
+        return gr.update(interactive=not enabled)
+
+    search_all_text.change(
+        fn=_toggle_single_model,
+        inputs=[search_all_text],
+        outputs=[model_selector_text],
+        queue=False,
+        show_progress="hidden",
+    )
+    search_all_image.change(
+        fn=_toggle_single_model,
+        inputs=[search_all_image],
+        outputs=[model_selector_img],
+        queue=False,
+        show_progress="hidden",
+    )
+
     # Search Event (Text)
     search_btn.click(
         fn=_wrap_search_text,
@@ -622,6 +718,7 @@ div.form:has(.filter-checkbox) {
             query_input,
             threshold_slider,
             model_selector_text,
+            search_all_text,
             *_filter_inputs,
         ],
         outputs=[
@@ -631,6 +728,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -641,6 +739,7 @@ div.form:has(.filter-checkbox) {
             image_input,
             threshold_slider,
             model_selector_img,
+            search_all_image,
             *_filter_inputs,
             multiband_state,
             image_metadata_state,
@@ -652,6 +751,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -666,6 +766,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -693,6 +794,7 @@ div.form:has(.filter-checkbox) {
             current_fig,
             map_data_state,
             plot_map,
+            all_model_plots,
         ],
     )
 
@@ -705,6 +807,8 @@ div.form:has(.filter-checkbox) {
         return save_plot(figures, models, download_mode)
 
     save_btn.click(fn=_save_results, inputs=[current_fig, download_mode], outputs=[download_file])
+
+    save_figures_btn.click(fn=save_comparison_figures, inputs=[current_fig], outputs=[download_file])
 
     # Re-show the shared map without waiting behind model inference jobs.
     for tab in (tab_text, tab_image, tab_location, tab_mixed):

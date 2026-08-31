@@ -12,7 +12,7 @@ import pytest
 import torch
 
 from core.filters import apply_filters, build_filter_options
-from core.search_engine import _align_on_grid_cell, _device_matmul_scores, _normalize_scores
+from core.search_engine import _align_on_grid_cell, _device_matmul_scores, _generate_status_msg, _normalize_scores
 
 
 class TestNormalizeScores:
@@ -167,6 +167,35 @@ class TestDeviceMatmulScores:
         result = _device_matmul_scores(emb, feat, indices=np.array([4, 2]))
         # Rows 4 and 2 of the identity matrix, each dot all-ones = 1
         np.testing.assert_allclose(result, np.ones(2), rtol=1e-6)
+
+
+def _status_results(count):
+    return [
+        {
+            "id": f"product-{index}",
+            "lat": 30.0 + index,
+            "lon": 120.0 + index,
+            "score": 0.9 - index / 100,
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+class TestStatusTopResults:
+    def test_lists_all_five_displayed_results(self):
+        status = _generate_status_msg(1741, 0.07, _status_results(5))
+
+        assert "Found 1741 matches in top 7‰." in status
+        assert "Top 5 similar images:" in status
+        assert status.count("Product ID:") == 5
+        assert "5. Product ID: product-5" in status
+
+    def test_heading_tracks_fewer_successful_downloads(self):
+        status = _generate_status_msg(100, 0.03, _status_results(3))
+
+        assert "Top 3 similar images:" in status
+        assert status.count("Product ID:") == 3
+        assert "4. Product ID:" not in status
 
 
 class TestQwenEnforceDevice:
