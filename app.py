@@ -31,6 +31,7 @@ from ui.callbacks import (
     reset_to_global_map,
 )
 from ui.example_controls import render_text_example_buttons
+from ui.image_examples import AIGC_IMAGE_EXAMPLE_FILES, IMAGE_EXAMPLE_GALLERY, select_image_example
 from visualize import warm_up_map_data
 
 # Environment variable for controlling download endpoint
@@ -143,14 +144,6 @@ MIXED_TEXT_EXAMPLE_QUERIES = [
     ["a satellite image of snow covered mountains"],
 ]
 
-# Shared example files / coordinates, referenced both by gr.Examples and by the
-# hidden-tab re-render workaround below.
-IMAGE_EXAMPLE_FILES = [
-    ["./examples/example1.png"],
-    ["./examples/example2.png"],
-    ["./examples/example3.png"],
-]
-
 LOCATION_EXAMPLE_COORDS = [
     [30.32, 120.15],
     [40.7128, -74.0060],
@@ -202,6 +195,44 @@ with gr.Blocks(
     css="""
 /* Left-align text samples in gr.Examples (button default is centered) */
 .gallery-item { text-align: left !important; }
+.image-example-gallery .grid-wrap {
+    padding: 0 !important;
+    overflow-y: visible !important;
+}
+.image-example-gallery .grid-container {
+    grid-template-rows: none !important;
+    grid-auto-rows: auto !important;
+    gap: 6px !important;
+}
+.image-example-gallery .gallery-item,
+.image-example-gallery .thumbnail-lg {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: auto !important;
+}
+.image-example-gallery .thumbnail-lg > img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1 !important;
+    object-fit: cover !important;
+}
+.image-example-gallery .caption-label {
+    position: static !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 2px 3px !important;
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+    text-align: center !important;
+    white-space: pre-line !important;
+    overflow-wrap: anywhere !important;
+}
 .text-example-list { gap: 6px !important; }
 .text-example-label p { margin: 0 !important; }
 .text-example-button {
@@ -313,10 +344,15 @@ div.form:has(.filter-checkbox) {
                     gr.Markdown("### Option 1: Upload or Select Image")
                     image_input = gr.Image(type="pil", label="Upload Image")
 
-                    ex_img = gr.Examples(
-                        examples=IMAGE_EXAMPLE_FILES,
-                        inputs=[image_input],
+                    ex_img = gr.Gallery(
+                        value=IMAGE_EXAMPLE_GALLERY,
                         label="Image Examples",
+                        columns=4,
+                        rows=2,
+                        height="auto",
+                        object_fit="cover",
+                        allow_preview=False,
+                        elem_classes=["image-example-gallery"],
                     )
 
                     gr.Markdown("### Option 2: Click Map or Enter Coordinates")
@@ -392,7 +428,7 @@ div.form:has(.filter-checkbox) {
                     mixed_image_input = gr.Image(type="pil", label="Upload Image (optional)")
 
                     ex_mixed_img = gr.Examples(
-                        examples=IMAGE_EXAMPLE_FILES,
+                        examples=AIGC_IMAGE_EXAMPLE_FILES,
                         inputs=[mixed_image_input],
                         label="Image Examples",
                     )
@@ -498,11 +534,14 @@ div.form:has(.filter-checkbox) {
         outputs=[multiband_state, image_metadata_state],
     )
 
-    # Picking an example also replaces the query image, but programmatically
-    # (no `.input` event), so discard both states on example clicks too.
-    ex_img.dataset.select(
-        fn=_clear_downloaded_image_state,
-        outputs=[multiband_state, image_metadata_state],
+    def _select_image_example(evt: gr.SelectData):
+        return select_image_example(evt.index)
+
+    ex_img.select(
+        fn=_select_image_example,
+        outputs=[image_input, multiband_state, image_metadata_state, img_click_status],
+        queue=False,
+        show_progress="hidden",
     )
 
     # Reset Map Buttons
@@ -817,10 +856,9 @@ div.form:has(.filter-checkbox) {
     # Gradio 6.17.x hidden-tab Examples rendering bug: force re-render on tab
     # select for every Examples component not in the initially-visible tab.
     if needs_hidden_tab_examples_fix(gr.__version__):
-        fix_hidden_tab_examples(tab_image, ex_img, IMAGE_EXAMPLE_FILES)
         fix_hidden_tab_examples(tab_location, ex_loc, LOCATION_EXAMPLE_COORDS)
         fix_hidden_tab_examples(tab_mixed, mixed_text_examples, MIXED_TEXT_EXAMPLE_QUERIES)
-        fix_hidden_tab_examples(tab_mixed, ex_mixed_img, IMAGE_EXAMPLE_FILES)
+        fix_hidden_tab_examples(tab_mixed, ex_mixed_img, AIGC_IMAGE_EXAMPLE_FILES)
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7859, share=False)
