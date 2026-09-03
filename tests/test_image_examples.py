@@ -16,7 +16,7 @@ EXPECTED_TIMESTAMPS = [
 
 def test_image_example_order_and_labels():
     assert [item["label"] for item in IMAGE_EXAMPLES] == [
-        "(27, 43)\nMultispectral",
+        "(27.2, 43)\nMultispectral",
         "(-4, -63)\nMultispectral",
         "(28.2, 85.7)\nMultispectral",
         "(41, 85)\nMultispectral",

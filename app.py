@@ -84,10 +84,6 @@ IMAGE_MODELS = _ordered_available_models(
 )
 MIXED_TEXT_IMAGE_MODELS = _ordered_available_models(["FarSLIP", "SigLIP", "TIPSv2", "Qwen3VL"])
 HAS_SATCLIP = "SatCLIP" in model_manager.get_available_models()
-ALL_MODEL_DOWNLOAD_MODEL = next(
-    (name for name in ("Clay", "OlmoEarth-v1_2", "SatCLIP") if name in IMAGE_MODELS),
-    None,
-)
 
 # UI display names: internal keys (config/EEX_MODELS/registry) stay unchanged;
 # only the labels shown in model dropdowns are overridden here.
@@ -336,9 +332,10 @@ div.form:has(.filter-checkbox) {
                     search_all_image = gr.Checkbox(label="Search with all models", value=False)
 
                     gr.Markdown(
-                        "> **Note:** For multi-spectral models (SatCLIP / Clay / OlmoEarth-v1_2), please select a geolocation on the map "
-                        "or enter coordinates below, then click **'Download Image by Geolocation'** to fetch the Sentinel-2 "
-                        "multi-band image before running the search. RGB uploads are not compatible with these models."
+                        "Geolocation downloads always include Sentinel-2 multi-band imagery and acquisition metadata "
+                        "for all models; the displayed RGB image is only a preview. "
+                        "Use a geolocation download or a multispectral example for all-model search. "
+                        "RGB uploads are supported by RGB models only."
                     )
 
                     gr.Markdown("### Option 1: Upload or Select Image")
@@ -566,16 +563,10 @@ div.form:has(.filter-checkbox) {
         fn=_map_click_handler, inputs=[map_data_state], outputs=[mixed_lat, mixed_lon, mixed_pid, mixed_click_status]
     )
 
-    # Download Image by Geolocation
-    def _download_image(lat, lon, pid, model_name, search_all):
-        effective_model = ALL_MODEL_DOWNLOAD_MODEL if search_all else model_name
-        if effective_model is None:
-            return None, "No multispectral model is available for all-model search.", None, None
-        return download_image_by_location(lat, lon, pid, effective_model, models)
-
+    # Download the same multiband query whether searching one model or all.
     btn_download_img.click(
-        fn=_download_image,
-        inputs=[img_lat, img_lon, img_pid, model_selector_img, search_all_image],
+        fn=_download_image_by_location,
+        inputs=[img_lat, img_lon, img_pid, model_selector_img],
         outputs=[image_input, img_click_status, multiband_state, image_metadata_state],
     )
 
