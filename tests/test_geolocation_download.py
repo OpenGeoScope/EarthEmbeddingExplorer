@@ -116,3 +116,29 @@ def test_download_button_is_independent_of_all_model_checkbox():
         "multiband_state",
         "image_metadata_state",
     ]
+
+
+@pytest.mark.parametrize("model_name", ["SigLIP", "Clay"])
+def test_full_source_and_precropped_source_produce_identical_queries(monkeypatch, source, model_name):
+    # Both URL layouts exist in the published indices. The large source must
+    # be center-cropped, not resized to a different field of view.
+    full_bands = np.arange(400 * 408 * 12, dtype=np.uint16).reshape(400, 408, 12)
+    cropped_bands = full_bands[8:392, 12:396].copy()
+    preview = Image.new("RGB", (384, 384))
+    metadata = {"timestamp": "20200124T074211", "product_id": "sample"}
+    models = {model_name: SimpleNamespace(df_embed=source, requires_multiband=model_name == "Clay")}
+    downloads = iter([full_bands, cropped_bands])
+    monkeypatch.setattr(
+        "ui.callbacks.download_and_process_image",
+        lambda *args, **kwargs: (preview, preview, next(downloads), metadata),
+    )
+
+    full_result = download_image_by_location(27.2, 43, "", model_name, models)
+    cropped_result = download_image_by_location(27.2, 43, "", model_name, models)
+
+    assert full_result[2].shape == (384, 384, 12)
+    assert full_result[2].dtype == np.uint16
+    np.testing.assert_array_equal(full_result[2], cropped_bands)
+    np.testing.assert_array_equal(full_result[2], cropped_result[2])
+    assert full_result[3] == cropped_result[3] == metadata
+    assert full_bands.shape == (400, 408, 12)

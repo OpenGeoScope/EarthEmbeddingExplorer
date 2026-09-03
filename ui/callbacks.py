@@ -8,7 +8,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from clay_metadata import clay_metadata_status
-from data_utils import download_and_process_image
+from data_utils import crop_center, download_and_process_image
 from visualize import plot_global_map_static
 
 # The global map is identical for every session, so render it once and reuse
@@ -244,6 +244,12 @@ def download_image_by_location(lat, lon, pid, model_name, models):
         )
         if img_384 is None or multiband_array is None:
             return None, f"Failed to download multispectral image for location ({lat:.4f}, {lon:.4f})", None, None
+        # Legacy indices point to full 1068px source tiles, while newer ones
+        # point to pre-cropped 384px tiles. Match the indexed footprint and the
+        # preview before any model-specific resize. Keep full-resolution result
+        # exports unchanged by cropping only this query state.
+        if multiband_array.shape[0] >= 384 and multiband_array.shape[1] >= 384:
+            multiband_array = crop_center(multiband_array, 384, 384)
         if downloaded_metadata:
             image_metadata.update(downloaded_metadata)
         metadata_status = (
