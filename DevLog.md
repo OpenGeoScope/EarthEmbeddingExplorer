@@ -2,15 +2,27 @@
 
 This log condenses the Git history into weekly user-facing features, bug fixes, and major performance improvements; weeks containing only merge, formatting, metadata, or documentation changes are omitted.
 
+## 2026-W36 (Aug 31-Sep 6)
+
+- **Feature:** Extended all-model image comparison to every available image encoder, including multispectral models supplied with downloaded Sentinel-2 bands and acquisition metadata.
+- **Feature:** Added dedicated downloads for per-model distribution maps and top-five comparison figures.
+- **Feature:** Added a curated image-example gallery with georeferenced 12-band GeoTIFF samples, acquisition metadata, and complementary RGB examples.
+- **Fix:** Preserved comparison-figure aspect ratios and aligned multispectral gallery previews with the imagery used for retrieval.
+- **Fix:** Unified geolocation downloads across RGB and multispectral encoders, aligned RGB preprocessing with the published indices, and center-cropped legacy source tiles to the indexed footprint.
+
 ## 2026-W35 (Aug 24-30)
 
 - **Feature:** Added real acquisition-time and TIFF-footprint inputs to Clay v1.5 embedding generation and retrieval.
 - **Feature:** Migrated OlmoEarth retrieval to OlmoEarth-v1_2-Base with real acquisition timestamps and 3D temporal encoding.
+- **Feature:** Added all-model text and RGB-image comparison with combined galleries, per-model status, comparison figures, and bundled exports.
+- **Feature:** Simplified retrieval overviews into one row showing the query, rank, similarity score, acquisition time, and coordinates.
 - **Fix:** Preserved the true spatial extent of resized OlmoEarth inputs by passing the effective 30 m encoder resolution.
 - **Fix:** Aligned Core-S2L2A-249k source URLs, row-group indices, and online band resampling so downloaded queries match indexed pixels.
 - **Fix:** Added an international ModelScope mirror for OlmoEarth-v1_2-Base where the official AllenAI repository is unavailable.
 - **Fix:** Declared EPSG:4326 explicitly in generated embedding GeoParquet files.
+- **Fix:** Listed every displayed top result in search status and kept tab and text-example events compatible with Gradio 5 and affected Gradio 6 releases.
 - **Performance:** Added deterministic multi-GPU sharding, sorted metadata lookup, batched decoding, and incremental progress accounting for embedding generation.
+- **Performance:** Reused the pre-rendered global map, removed queued work from tab switches, and moved text-example selection to the browser.
 - **Fix:** Preserved downloaded multiband and timestamp state until the user replaces the query via upload, webcam, clipboard, or an example image.
 
 ## 2026-W33 (Aug 10-16)
