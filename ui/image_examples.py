@@ -10,7 +10,7 @@ IMAGE_EXAMPLES = [
     {
         "preview": "./examples/multispectral_27_43_preview.png",
         "tif": "./examples/multispectral_27_43.tif",
-        "label": "(27, 43)\nMultispectral",
+        "label": "(27.2, 43)\nMultispectral",
     },
     {
         "preview": "./examples/multispectral_minus4_minus63_preview.png",

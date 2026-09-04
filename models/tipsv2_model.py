@@ -1,5 +1,6 @@
 import os
 
+import cv2
 import numpy as np
 import pyarrow.parquet as pq
 import torch
@@ -183,6 +184,21 @@ class TIPSv2Model:
     def preprocess_s2(self, input_data: torch.Tensor) -> torch.Tensor:
         """Convert raw Sentinel-2 reflectance to [0, 1] RGB."""
         return (2.5 * (input_data / 1e4)).clip(0, 1)
+
+    def prepare_index_aligned_image(self, image: np.ndarray) -> np.ndarray:
+        """Match the fragment resize used to build the published 448px index.
+
+        ``generate_embeddings._prepare_single_fragment_image`` uses OpenCV
+        nearest-neighbor interpolation when a 384px source chip is expanded to
+        the configured 448px TIPSv2 fragment.  Apply the same operation to raw
+        online RGB queries before the model's tensor preprocessing.
+        """
+        array = np.asarray(image)
+        if array.ndim != 3 or array.shape[-1] != 3:
+            raise ValueError(f"Expected an HWC RGB query, got shape {array.shape}")
+        if tuple(array.shape[:2]) == self.size:
+            return array
+        return cv2.resize(array, (self.size[1], self.size[0]), interpolation=cv2.INTER_NEAREST)
 
     def _prepare_tensor(self, image: torch.Tensor, preprocess_s2: bool = True) -> torch.Tensor:
         """Prepare a torch.Tensor (CHW or NCHW) for TIPSv2 encoding."""

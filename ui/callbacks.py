@@ -8,7 +8,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from clay_metadata import clay_metadata_status
-from data_utils import download_and_process_image
+from data_utils import crop_center, download_and_process_image
 from visualize import plot_global_map_static
 
 # The global map is identical for every session, so render it once and reuse
@@ -173,8 +173,9 @@ def handle_map_click(evt: gr.SelectData, df_vis):
 def download_image_by_location(lat, lon, pid, model_name, models):
     """Download and return the image at the specified location.
 
-    For SatCLIP, automatically downloads multiband data and stores it in the
-    returned tuple for subsequent encoding.
+    Always fetch raw Sentinel-2 bands and acquisition metadata, regardless of
+    the selected model. The thumbnail is only a display preview; RGB encoders
+    use the raw RGB bands, just as they do in all-model search.
 
     Returns:
         (thumbnail_img, status_msg, multiband_array_or_None, image_metadata_or_None)
@@ -232,37 +233,36 @@ def download_image_by_location(lat, lon, pid, model_name, models):
             "timestamp": source_row.get("timestamp"),
         }
 
-        # For multi-spectral models: download multiband for encoding; thumbnail for display
-        needs_multiband = getattr(model, "requires_multiband", False)
-        if needs_multiband:
-            needs_clay_metadata = getattr(model, "supports_spatiotemporal_metadata", False)
-            result = download_and_process_image(
-                pid,
-                df_source=model.df_embed,
-                verbose=True,
-                mode="multiband",
-                return_metadata=needs_clay_metadata,
-            )
-            if needs_clay_metadata:
-                img_384, _, multiband_array, clay_metadata = result
-                if clay_metadata:
-                    image_metadata.update(clay_metadata)
-            else:
-                img_384, _, multiband_array = result
-            if img_384 is None:
-                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None, None
-            metadata_status = f" {clay_metadata_status(image_metadata)}" if needs_clay_metadata else ""
-            return (
-                img_384,
-                f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multiband for {model_name}].{metadata_status}",
-                multiband_array,
-                image_metadata,
-            )
-        else:
-            img_384, _ = download_and_process_image(pid, df_source=model.df_embed, verbose=True, mode="thumbnail")
-            if img_384 is None:
-                return None, f"Failed to download image for location ({lat:.4f}, {lon:.4f})", None, None
-            return img_384, f"Downloaded image at ({lat:.4f}, {lon:.4f})", None, image_metadata
+        # Preserve the same query state for single-model search, all-model
+        # search, and switching models after a download.
+        img_384, _, multiband_array, downloaded_metadata = download_and_process_image(
+            pid,
+            df_source=df,
+            verbose=True,
+            mode="multiband",
+            return_metadata=True,
+        )
+        if img_384 is None or multiband_array is None:
+            return None, f"Failed to download multispectral image for location ({lat:.4f}, {lon:.4f})", None, None
+        # Legacy indices point to full 1068px source tiles, while newer ones
+        # point to pre-cropped 384px tiles. Match the indexed footprint and the
+        # preview before any model-specific resize. Keep full-resolution result
+        # exports unchanged by cropping only this query state.
+        if multiband_array.shape[0] >= 384 and multiband_array.shape[1] >= 384:
+            multiband_array = crop_center(multiband_array, 384, 384)
+        if downloaded_metadata:
+            image_metadata.update(downloaded_metadata)
+        metadata_status = (
+            f" {clay_metadata_status(image_metadata)}"
+            if getattr(model, "supports_spatiotemporal_metadata", False)
+            else ""
+        )
+        return (
+            img_384,
+            f"Downloaded image at ({lat:.4f}, {lon:.4f}) [multispectral + metadata; RGB preview only].{metadata_status}",
+            multiband_array,
+            image_metadata,
+        )
 
     except Exception as e:
         import traceback

@@ -28,6 +28,28 @@ def _model_supports_native_joint_encoding(model):
     return hasattr(model, "encode_text_and_image") and callable(model.encode_text_and_image)
 
 
+def _rgb_query_tensor_from_multiband(model, multiband_data):
+    """Build an index-aligned RGB tensor from a downloaded Sentinel-2 query.
+
+    Embedding indices for RGB models are generated from the raw B04/B03/B02
+    reflectance bands, not from the display-only 8-bit preview.  Keep online
+    image search on the same path whenever the downloaded multiband state is
+    available.  Models may optionally adjust the raw HWC array to match an
+    index-specific fragment preparation step before it is converted to NCHW.
+    """
+    rgb_data = reorder_multiband(multiband_data, model.bands)
+    prepare_index_input = getattr(model, "prepare_index_aligned_image", None)
+    if callable(prepare_index_input):
+        rgb_data = prepare_index_input(rgb_data)
+
+    rgb_array = np.asarray(rgb_data)
+    if rgb_array.ndim != 3 or rgb_array.shape[-1] != 3:
+        raise ValueError(f"Expected an HWC RGB query, got shape {rgb_array.shape}")
+
+    rgb_array = np.ascontiguousarray(rgb_array)
+    return torch.from_numpy(rgb_array).permute(2, 0, 1).unsqueeze(0)
+
+
 def _validate_lat_lon(lat, lon):
     """Validate latitude/longitude inputs.
 
@@ -312,7 +334,12 @@ def search_image(
                 )
                 return
         else:
-            image_features = model.encode_image(image_input)
+            if multiband_data is not None:
+                rgb_query = _rgb_query_tensor_from_multiband(model, multiband_data)
+                print(f"{model_name}: encoding with raw RGB bands {tuple(rgb_query.shape)}")
+                image_features = model.encode_image(rgb_query)
+            else:
+                image_features = model.encode_image(image_input)
         timings["Encoding"] = time.time() - t0
 
         if image_features is None:

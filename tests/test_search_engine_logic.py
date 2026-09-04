@@ -6,13 +6,108 @@ These tests load no models, need no GPU, and run in seconds. They cover:
 - ``apply_filters`` warning behavior (lat swap, antimeridian split, bad dates)
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
 import torch
+from PIL import Image
 
 from core.filters import apply_filters, build_filter_options
-from core.search_engine import _align_on_grid_cell, _device_matmul_scores, _generate_status_msg, _normalize_scores
+from core.search_engine import (
+    _align_on_grid_cell,
+    _device_matmul_scores,
+    _generate_status_msg,
+    _normalize_scores,
+    _rgb_query_tensor_from_multiband,
+    search_image,
+)
+from data_utils import MULTIBAND_COLUMNS
+
+
+class TestRGBQueryFromMultiband:
+    def test_reorders_raw_bands_and_returns_nchw_tensor(self):
+        multiband = np.arange(2 * 3 * len(MULTIBAND_COLUMNS), dtype=np.uint16).reshape(2, 3, len(MULTIBAND_COLUMNS))
+        model = SimpleNamespace(bands=["B04", "B03", "B02"])
+
+        query = _rgb_query_tensor_from_multiband(model, multiband)
+
+        expected = multiband[..., [MULTIBAND_COLUMNS.index(name) for name in model.bands]]
+        assert query.shape == (1, 3, 2, 3)
+        np.testing.assert_array_equal(query.squeeze(0).permute(1, 2, 0).numpy(), expected)
+
+    def test_applies_optional_index_alignment_hook(self):
+        calls = []
+
+        def prepare(image):
+            calls.append(image.shape)
+            return np.zeros((5, 7, 3), dtype=np.uint16)
+
+        model = SimpleNamespace(bands=["B04", "B03", "B02"], prepare_index_aligned_image=prepare)
+        query = _rgb_query_tensor_from_multiband(model, np.zeros((2, 3, len(MULTIBAND_COLUMNS)), dtype=np.uint16))
+
+        assert calls == [(2, 3, 3)]
+        assert query.shape == (1, 3, 5, 7)
+
+    def test_rgb_search_prefers_raw_bands_over_preview(self):
+        class Model:
+            requires_multiband = False
+
+            def __init__(self):
+                self.bands = ["B04", "B03", "B02"]
+
+            def encode_image(self, image):
+                self.received = image
+                return torch.ones(1, 2)
+
+        model = Model()
+        manager = SimpleNamespace(get_model=lambda _name: (model, None))
+        preview = Image.new("RGB", (4, 4), "green")
+        generator = search_image(
+            manager,
+            preview,
+            10,
+            "RGBModel",
+            multiband_data=np.zeros((4, 4, len(MULTIBAND_COLUMNS)), dtype=np.uint16),
+            image_metadata={"timestamp": "20200124T074211"},
+        )
+
+        next(generator)
+        next(generator)
+
+        assert isinstance(model.received, torch.Tensor)
+        assert model.received.shape == (1, 3, 4, 4)
+
+    def test_rgb_upload_without_multiband_keeps_preview_path(self):
+        class Model:
+            requires_multiband = False
+
+            def encode_image(self, image):
+                self.received = image
+                return torch.ones(1, 2)
+
+        model = Model()
+        manager = SimpleNamespace(get_model=lambda _name: (model, None))
+        preview = Image.new("RGB", (4, 4), "green")
+        generator = search_image(manager, preview, 10, "RGBModel")
+
+        next(generator)
+        next(generator)
+
+        assert model.received is preview
+
+    def test_tipsv2_alignment_matches_embedding_generator_resize(self):
+        from models.tipsv2_model import TIPSv2Model
+
+        model = object.__new__(TIPSv2Model)
+        model.size = (448, 448)
+        image = np.arange(384 * 384 * 3, dtype=np.uint16).reshape(384, 384, 3)
+
+        aligned = model.prepare_index_aligned_image(image)
+
+        assert aligned.shape == (448, 448, 3)
+        assert aligned.dtype == image.dtype
 
 
 class TestNormalizeScores:
