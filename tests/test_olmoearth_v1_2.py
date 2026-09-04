@@ -79,7 +79,7 @@ def test_download_callback_returns_selected_product_timestamp(monkeypatch):
 
     monkeypatch.setattr(
         "ui.callbacks.download_and_process_image",
-        lambda *args, **kwargs: (SimpleNamespace(), None, multiband),
+        lambda *args, **kwargs: (SimpleNamespace(), None, multiband, None),
     )
 
     _image, _status, returned_bands, metadata = download_image_by_location(
