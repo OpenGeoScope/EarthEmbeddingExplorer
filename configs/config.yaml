@@ -27,7 +27,7 @@ olmoearth:
 tipsv2:
   ckpt_path: "Download_From_$DOWNLOAD_ENDPOINT"
   model_name: "google/tipsv2-b14"
-  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-TIPSv2/TIPSv2_b14_crop_448x448.parquet"
+  embedding_path: "ms://Major-TOM/Core-S2RGB-249k-TIPSv2/TIPSv2_b14_crop_384x384.parquet"
   image_size: 448
 
 qwen3vl:
